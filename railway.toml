@@ -1,0 +1,15 @@
+# ============================================================
+#  CELURA · Configuración de deploy en Railway
+#  Archivo: railway.toml (en la raíz del repo)
+# ============================================================
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd apps/api && npm install && npm run build"
+
+[deploy]
+startCommand = "cd apps/api && node dist/server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
