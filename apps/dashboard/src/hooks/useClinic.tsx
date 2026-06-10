@@ -11,6 +11,8 @@ interface Clinic {
   phone: string | null
   city: string | null
   country: string
+  is_beta?: boolean
+  beta_started_at?: string | null
 }
 
 interface Config {

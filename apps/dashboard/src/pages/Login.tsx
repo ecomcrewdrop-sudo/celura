@@ -1,31 +1,69 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { MessageSquare, Brain, CalendarDays, Users, Smartphone, TrendingUp } from 'lucide-react'
+import { useAppConfig } from '@/hooks/useAppConfig'
+import { MessageSquare, Brain, CalendarDays, Users, Smartphone, TrendingUp, Sparkles, Mail } from 'lucide-react'
 
 export default function Login() {
   const { signIn, signUp, user, loading: authLoading } = useAuth()
+  const { config } = useAppConfig()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
   const [isRegister, setIsRegister] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [needsConfirmation, setNeedsConfirmation] = useState(false)
 
   if (authLoading) return null
   if (user) return <Navigate to="/" replace />
 
+  const beta = config?.beta_mode === true
+  const days = config?.beta_days ?? 14
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setNeedsConfirmation(false)
     setLoading(true)
-    const err = isRegister ? await signUp(email, password) : await signIn(email, password)
+    const err = isRegister
+      ? await signUp(email, password, fullName.trim() || undefined)
+      : await signIn(email, password)
     setLoading(false)
+    if (err === '__needs_confirmation__') {
+      setNeedsConfirmation(true)
+      return
+    }
     if (err) {
       setError(err)
     } else {
+      // Tras registro: el ClinicGuard te lleva a /onboarding si no hay clínica
       navigate('/')
     }
+  }
+
+  if (needsConfirmation) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white px-4">
+        <div className="mx-auto w-full max-w-md text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1a6b50]/10">
+            <Mail className="h-6 w-6 text-[#1a6b50]" />
+          </div>
+          <h1 className="mt-5 text-2xl font-bold text-dark-900">Confirma tu correo</h1>
+          <p className="mt-2 text-sm text-zinc-500">
+            Te enviamos un enlace a <span className="font-medium text-dark-900">{email}</span>.
+            Ábrelo para activar tu cuenta y volver aquí.
+          </p>
+          <button
+            onClick={() => { setNeedsConfirmation(false); setIsRegister(false) }}
+            className="mt-6 text-sm font-medium text-[#1a6b50] hover:underline"
+          >
+            Volver a iniciar sesión
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -44,7 +82,38 @@ export default function Login() {
               : 'Tu asistente dental con IA te espera'}
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          {isRegister && beta && (
+            <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-[#1a6b50]/20 bg-[#1a6b50]/[0.06] px-3.5 py-3">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#1a6b50] text-white">
+                <Sparkles className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-[#0d3f2e]">
+                  Acceso anticipado · Plan PRO {days} días gratis
+                </p>
+                <p className="mt-0.5 text-[11px] text-zinc-600">
+                  Sin tarjeta. Cancelas cuando quieras al terminar.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {isRegister && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-dark-900">
+                  Nombre del doctor o responsable
+                </label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Dr. María Pérez"
+                  required
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-dark-900 outline-none transition-all placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+            )}
             <div>
               <label className="mb-1.5 block text-sm font-medium text-dark-900">
                 Correo electrónico

@@ -22,6 +22,11 @@ const createClinicSchema = z.object({
 })
 
 const TRIAL_DAYS = 14
+const BETA_DAYS = 14
+
+function isBetaMode(): boolean {
+  return (process.env.BETA_MODE ?? 'true').toLowerCase() === 'true'
+}
 
 export default async function onboardingRoutes(fastify: FastifyInstance) {
   fastify.post('/onboarding/clinic', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -77,8 +82,11 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
     }
 
     // 5. Crear la clínica (el trigger create_clinic_config genera la config)
+    //    Durante BETA_MODE los usuarios reciben plan PRO 14 días automático.
+    const beta = isBetaMode()
+    const days = beta ? BETA_DAYS : TRIAL_DAYS
     const trialEndsAt = new Date()
-    trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS)
+    trialEndsAt.setDate(trialEndsAt.getDate() + days)
 
     const { data: clinic, error: clinicError } = await admin
       .from('clinics')
@@ -89,9 +97,11 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
         phone: parsed.data.phone ?? null,
         city: parsed.data.city ?? null,
         country: parsed.data.country,
-        plan: 'trial',
-        status: 'trial',
+        plan: beta ? 'pro' : 'trial',
+        status: beta ? 'active' : 'trial',
         trial_ends_at: trialEndsAt.toISOString(),
+        is_beta: beta,
+        beta_started_at: beta ? new Date().toISOString() : null,
       })
       .select()
       .single()
@@ -105,7 +115,21 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
       success: true,
       clinic,
       trial_ends_at: trialEndsAt.toISOString(),
-      message: `Bienvenido a Celura. Tu trial termina el ${trialEndsAt.toISOString().slice(0, 10)}.`,
+      is_beta: beta,
+      plan: beta ? 'pro' : 'trial',
+      message: beta
+        ? `Bienvenido al programa beta de Celura. Tienes plan PRO hasta el ${trialEndsAt.toISOString().slice(0, 10)}.`
+        : `Bienvenido a Celura. Tu trial termina el ${trialEndsAt.toISOString().slice(0, 10)}.`,
     })
+  })
+
+  // ── Config pública (sin auth) para que el frontend sepa
+  //    si estamos en periodo beta y muestre el banner.
+  fastify.get('/auth/config', async () => {
+    return {
+      beta_mode: isBetaMode(),
+      beta_days: BETA_DAYS,
+      trial_days: TRIAL_DAYS,
+    }
   })
 }

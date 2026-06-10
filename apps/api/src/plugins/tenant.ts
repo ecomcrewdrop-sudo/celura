@@ -46,6 +46,7 @@ async function tenantPlugin(fastify: FastifyInstance) {
       '/health',
       '/auth/login',
       '/auth/register',
+      '/auth/config',
       '/onboarding/',
     ]
     if (publicPaths.some(p => request.url.startsWith(p))) return

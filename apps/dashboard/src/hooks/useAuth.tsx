@@ -7,7 +7,7 @@ interface AuthCtx {
   session: Session | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<string | null>
-  signUp: (email: string, password: string) => Promise<string | null>
+  signUp: (email: string, password: string, fullName?: string) => Promise<string | null>
   signOut: () => Promise<void>
 }
 
@@ -33,9 +33,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return error?.message ?? null
   }
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
-    return error?.message ?? null
+  const signUp = async (email: string, password: string, fullName?: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: fullName ? { full_name: fullName } : undefined,
+      },
+    })
+    if (error) return error.message
+    // Si Supabase tiene "Confirm email" activo, no habrá sesión hasta confirmar.
+    // Avisamos para que el frontend pueda mostrarlo claramente.
+    if (!data.session) {
+      return '__needs_confirmation__'
+    }
+    return null
   }
 
   const signOut = async () => {

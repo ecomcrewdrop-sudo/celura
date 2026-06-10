@@ -14,6 +14,15 @@ import {
   ChevronRight,
 } from 'lucide-react'
 
+function daysLeftLabel(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now()
+  if (Number.isNaN(ms)) return ''
+  const d = Math.ceil(ms / 86_400_000)
+  if (d <= 0) return 'Tu acceso ha terminado'
+  if (d === 1) return 'Termina mañana'
+  return `${d} días restantes`
+}
+
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/leads', label: 'Leads', icon: Users },
@@ -42,9 +51,21 @@ export default function Sidebar() {
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-white">{clinic.name}</p>
               <div className="mt-1 flex items-center gap-2">
-                <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+                <span
+                  className={clsx(
+                    'rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider',
+                    clinic.plan === 'pro'
+                      ? 'bg-lime-500/15 text-lime-300'
+                      : 'bg-white/[0.06] text-zinc-400',
+                  )}
+                >
                   {clinic.plan === 'trial' ? 'Trial' : clinic.plan}
                 </span>
+                {clinic.is_beta && (
+                  <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+                    Beta
+                  </span>
+                )}
                 {config?.wa_connected ? (
                   <span className="flex items-center gap-1 text-[11px] text-lime-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-lime-400" />
@@ -54,6 +75,11 @@ export default function Sidebar() {
                   <span className="text-[11px] text-zinc-600">WA off</span>
                 )}
               </div>
+              {clinic.trial_ends_at && (clinic.is_beta || clinic.plan === 'trial') && (
+                <p className="mt-1.5 text-[10px] text-zinc-500">
+                  {daysLeftLabel(clinic.trial_ends_at)}
+                </p>
+              )}
             </div>
             <ChevronRight className="h-3.5 w-3.5 text-zinc-600" />
           </div>
