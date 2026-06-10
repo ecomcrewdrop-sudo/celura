@@ -9,7 +9,7 @@ import './instrument.js'
 import 'dotenv/config'
 import { env } from './config/env.js'   // valida el entorno ANTES de cargar el resto
 import * as Sentry from '@sentry/node'
-import Fastify from 'fastify'
+import Fastify, { FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import jwt from '@fastify/jwt'
@@ -59,9 +59,24 @@ async function buildServer() {
     }),
   })
 
-  // ── JWT ────────────────────────────────────────────────────
+  // ── JWT (ES256 via Supabase JWKS + HS256 fallback) ────────
+  const buildGetJwks = (await import('get-jwks')).default
+  const getJwks = buildGetJwks({ jwksPath: '/.well-known/jwks.json' })
+
   await fastify.register(jwt, {
-    secret: env.JWT_SECRET,
+    decode: { complete: true },
+    secret: async (_req: FastifyRequest, tokenOrHeader: { header: { kid?: string; alg: string }; payload: { iss?: string } } | { kid?: string; alg: string }): Promise<string | Buffer> => {
+      const header = 'header' in tokenOrHeader ? tokenOrHeader.header : tokenOrHeader
+      const payload = 'payload' in tokenOrHeader ? tokenOrHeader.payload : undefined
+      if (header.alg === 'ES256' && header.kid) {
+        return getJwks.getPublicKey({
+          kid: header.kid,
+          domain: payload?.iss ?? env.SUPABASE_URL + '/auth/v1',
+          alg: header.alg,
+        })
+      }
+      return env.JWT_SECRET
+    },
   })
 
   // ── Plugin de aislamiento por tenant ──────────────────────

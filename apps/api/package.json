@@ -26,6 +26,7 @@
     "dotenv": "^16.4.5",
     "fastify": "^4.27.0",
     "fastify-plugin": "^4.5.1",
+    "get-jwks": "^11.0.3",
     "ioredis": "5.10.1",
     "node-cache": "^5.1.2",
     "pino": "^9.1.0",
