@@ -8,10 +8,10 @@ interface Props {
 
 export default function PageHeader({ title, subtitle, action }: Props) {
   return (
-    <div className="mb-8 flex items-center justify-between">
+    <div className="mb-8 flex items-end justify-between">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-zinc-400">{subtitle}</p>}
+        <h1 className="text-[1.75rem] font-bold tracking-tight text-white">{title}</h1>
+        {subtitle && <p className="mt-1.5 text-[13px] text-zinc-500">{subtitle}</p>}
       </div>
       {action && <div>{action}</div>}
     </div>

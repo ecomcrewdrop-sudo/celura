@@ -10,3 +10,4 @@ Thumbs.db
 .pnpm-store/
 coverage/
 .turbo/
+tsconfig.tsbuildinfo

@@ -1,17 +1,18 @@
 @import "tailwindcss";
 
 @theme {
-  --color-lime-400: #a3e635;
-  --color-lime-500: #84cc16;
-  --color-lime-600: #65a30d;
-  --color-lime-300: #bef264;
-  --color-dark-900: #0a0a0a;
-  --color-dark-800: #111111;
-  --color-dark-700: #1a1a1a;
-  --color-dark-600: #222222;
-  --color-dark-500: #2a2a2a;
-  --color-dark-400: #333333;
-  --color-dark-300: #444444;
+  --color-lime-400: #5DCAA5;
+  --color-lime-500: #4AB892;
+  --color-lime-600: #3A9B7A;
+  --color-lime-300: #8FE5CA;
+  --color-dark-950: #06060a;
+  --color-dark-900: #09090b;
+  --color-dark-800: #0c0c10;
+  --color-dark-700: #15151a;
+  --color-dark-600: #1c1c22;
+  --color-dark-500: #27272e;
+  --color-dark-400: #3b3b44;
+  --color-dark-300: #52525b;
   --font-sans: 'Inter', system-ui, sans-serif;
 }
 
@@ -23,19 +24,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar sutil */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #555; }
+::-webkit-scrollbar-thumb { background: #27272e; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #3b3b44; }
 
-/* Animación de entrada suave */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes slideIn {
@@ -43,13 +42,26 @@ body {
   to { opacity: 1; transform: translateX(0); }
 }
 .animate-slide-in {
-  animation: slideIn 0.25s ease-out;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes pulse-lime {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(163, 230, 53, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(163, 230, 53, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(93, 202, 165, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(93, 202, 165, 0); }
 }
 .animate-pulse-lime {
   animation: pulse-lime 2s infinite;
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }

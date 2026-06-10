@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import Input from '@/components/Input'
 import Button from '@/components/Button'
-import { Stethoscope, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 
 export default function Onboarding() {
   const navigate = useNavigate()
@@ -48,10 +48,8 @@ export default function Onboarding() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-dark-900 px-4">
       <div className="animate-fade-in w-full max-w-md">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-lime-500/20">
-            <Stethoscope className="h-7 w-7 text-lime-400" />
-          </div>
+        <div className="mb-8 flex flex-col items-center gap-4">
+          <img src="/logo-dark.svg" alt="Celura" className="h-10" />
           <div className="text-center">
             <h1 className="text-2xl font-bold text-white">Configura tu clínica</h1>
             <p className="mt-1 text-sm text-zinc-500">
