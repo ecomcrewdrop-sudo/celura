@@ -35,7 +35,7 @@ const updateConfigSchema = z.object({
   vision_sensitivity: z.enum(['conservative', 'balanced', 'thorough']).optional(),
   vision_focus: z.array(z.string().min(1).max(40)).max(20).optional(),
   vision_auto_suggest: z.boolean().optional(),
-  vision_disclaimer: z.string().min(10).max(500).optional(),
+  vision_disclaimer: z.string().max(500).optional(),
   // Claves en texto plano: las encriptamos antes de guardar
   claude_api_key: z.string().min(20).max(200).optional(),
   elevenlabs_api_key: z.string().min(20).max(200).optional(),

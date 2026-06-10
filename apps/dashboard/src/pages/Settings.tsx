@@ -106,12 +106,15 @@ export default function Settings() {
         Object.entries(form.schedule).map(([k, v]) => [k, normalizeScheduleEntry(v)]),
       )
 
+      // Validación mínima en cliente antes de pegarle al server
+      if (!form.assistant_name.trim()) {
+        setFeedback({ type: 'error', msg: 'El nombre del asistente no puede estar vacío.' })
+        return
+      }
+
       const body: Record<string, unknown> = {
-        assistant_name: form.assistant_name,
+        assistant_name: form.assistant_name.trim(),
         tone: form.tone,
-        greeting: form.greeting,
-        farewell: form.farewell,
-        custom_prompt: form.custom_prompt,
         treatments: form.treatments.split(',').map((t) => t.trim()).filter(Boolean),
         escalate_on: form.escalate_on.split(',').map((t) => t.trim()).filter(Boolean),
         schedule: normalizedSchedule,
@@ -119,8 +122,13 @@ export default function Settings() {
         vision_sensitivity: form.vision_sensitivity,
         vision_focus: form.vision_focus,
         vision_auto_suggest: form.vision_auto_suggest,
-        vision_disclaimer: form.vision_disclaimer,
       }
+
+      // Campos opcionales: solo enviamos si tienen contenido (evita 400 por strings vacíos)
+      if (form.greeting.trim()) body.greeting = form.greeting.trim()
+      if (form.farewell.trim()) body.farewell = form.farewell.trim()
+      if (form.custom_prompt.trim()) body.custom_prompt = form.custom_prompt.trim()
+      if (form.vision_disclaimer.trim()) body.vision_disclaimer = form.vision_disclaimer.trim()
       if (form.claude_api_key) body.claude_api_key = form.claude_api_key
       if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
 
