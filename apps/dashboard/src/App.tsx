@@ -9,6 +9,7 @@ import Leads from '@/pages/Leads'
 import Appointments from '@/pages/Appointments'
 import Conversations from '@/pages/Conversations'
 import WhatsAppPage from '@/pages/WhatsApp'
+import Workflows from '@/pages/Workflows'
 import Settings from '@/pages/Settings'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="appointments" element={<Appointments />} />
             <Route path="conversations" element={<Conversations />} />
             <Route path="whatsapp" element={<WhatsAppPage />} />
+            <Route path="workflows" element={<Workflows />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

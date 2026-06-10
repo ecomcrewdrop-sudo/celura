@@ -22,6 +22,7 @@ import clinicsRoutes from './routes/clinics.js'
 import leadsRoutes from './routes/leads.js'
 import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
+import workflowsRoutes from './routes/workflows.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { processMessage } from './services/brain.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
@@ -101,6 +102,7 @@ async function buildServer() {
   await fastify.register(conversationsRoutes, { prefix: '/api' })   // /api/conversations + /api/leads/:id/conversation
   await fastify.register(appointmentsRoutes, { prefix: '/api' })    // /api/appointments/*
   await fastify.register(whatsappRoutes, { prefix: '/api' })        // /api/whatsapp/*
+  await fastify.register(workflowsRoutes, { prefix: '/api' })       // /api/workflows/*
 
   // ── Sentry: instrumentación de Fastify (después de rutas) ──
   Sentry.setupFastifyErrorHandler(fastify)

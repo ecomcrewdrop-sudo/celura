@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js'
 import { decrypt } from './crypto.js'
 import { sendMessage, type WAMessage } from './whatsapp.js'
 import { scheduleFollowUps } from './scheduler.js'
+import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import type {
   ClinicConfig,
   Lead,
@@ -424,11 +425,33 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         .eq('id', lead.id)
     }
 
+    // 8b. Ejecutar workflows visuales antes de Claude. Si alguno matchea y
+    //     produce respuesta, la usamos en vez del motor conversacional libre.
+    const engineResult: EngineResult = await runWorkflowsForMessage({
+      waMsg,
+      config,
+      lead,
+      conversation,
+      isFirstMessage,
+      intent,
+      visionAnalysis,
+      anthropic,
+    })
+
+    if (engineResult.matched) {
+      console.log(
+        `[Brain] Workflow ${engineResult.workflow_id} matched · bloques=${engineResult.blocks_executed} · respuesta=${!!engineResult.response_text}`
+      )
+    }
+
     // 9. Generar respuesta del asistente
     let assistantText: string
     let tokensUsed = 0
 
-    if (visionAnalysis && config.vision_auto_suggest) {
+    if (engineResult.response_text) {
+      // El workflow generó la respuesta — la usamos directamente
+      assistantText = engineResult.response_text
+    } else if (visionAnalysis && config.vision_auto_suggest) {
       // El analizador clínico ya redactó un patient_message listo para enviar.
       // Lo usamos directamente para no perder la voz del odontólogo profesional.
       assistantText = visionAnalysis.patient_message
@@ -484,19 +507,34 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         })
         .eq('id', conversation.id),
 
-      // Actualizar lead
+      // Actualizar lead (combina nameUpdate, defaults por intent, y engine.lead_updates)
       supabaseAdmin
         .from('leads')
         .update({
           last_message_at: new Date().toISOString(),
-          stage: intent === 'schedule' ? 'interested' : undefined,
+          stage: engineResult.lead_updates.stage ?? (intent === 'schedule' ? 'interested' : undefined),
           treatment_interest: updatedContext.appointment_discussed
             ? (lead.treatment_interest ?? config.treatments[0])
             : lead.treatment_interest,
           ...nameUpdate,
+          ...engineResult.lead_updates,
         })
         .eq('id', lead.id),
     ])
+
+    // 12b. Si workflow escaló, marcar contexto de la conversación
+    if (engineResult.escalated) {
+      void supabaseAdmin
+        .from('conversations')
+        .update({
+          context: { ...updatedContext, escalated: true },
+        })
+        .eq('id', conversation.id)
+        .then(() => undefined)
+      console.log(
+        `[Brain] Conversación escalada por workflow · razón=${engineResult.escalation_reason}`
+      )
+    }
 
     // 13. Enviar respuesta por WhatsApp
     const sent = await sendMessage(clinic_id, from_phone, assistantText)

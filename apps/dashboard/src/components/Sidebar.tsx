@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Settings,
   Smartphone,
+  Workflow,
   LogOut,
   ChevronRight,
 } from 'lucide-react'
@@ -18,6 +19,7 @@ const links = [
   { to: '/leads', label: 'Leads', icon: Users },
   { to: '/appointments', label: 'Citas', icon: CalendarDays },
   { to: '/conversations', label: 'Conversaciones', icon: MessageSquare },
+  { to: '/workflows', label: 'Flujos', icon: Workflow },
   { to: '/whatsapp', label: 'WhatsApp', icon: Smartphone },
   { to: '/settings', label: 'Configuración', icon: Settings },
 ]
