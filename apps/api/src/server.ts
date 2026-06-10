@@ -17,6 +17,9 @@ import rateLimit from '@fastify/rate-limit'
 
 import tenantPlugin from './plugins/tenant.js'
 import whatsappRoutes from './routes/whatsapp.js'
+import onboardingRoutes from './routes/onboarding.js'
+import clinicsRoutes from './routes/clinics.js'
+import leadsRoutes from './routes/leads.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { processMessage } from './services/brain.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
@@ -70,8 +73,11 @@ async function buildServer() {
   }))
 
   // ── Rutas ─────────────────────────────────────────────────
-  await fastify.register(whatsappRoutes, { prefix: '/api' })
-  // TODO Día 3+: leads, config, onboarding, appointments
+  await fastify.register(onboardingRoutes)                       // /onboarding/*
+  await fastify.register(clinicsRoutes, { prefix: '/api' })      // /api/clinics/*
+  await fastify.register(leadsRoutes, { prefix: '/api' })        // /api/leads/*
+  await fastify.register(whatsappRoutes, { prefix: '/api' })     // /api/whatsapp/*
+  // TODO Día 4+: appointments, conversations, follow-ups
 
   // ── Sentry: instrumentación de Fastify (después de rutas) ──
   Sentry.setupFastifyErrorHandler(fastify)

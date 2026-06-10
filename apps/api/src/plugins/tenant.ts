@@ -20,6 +20,10 @@ declare module 'fastify' {
     tenant: TenantContext
     supabase: SupabaseClient  // cliente con el JWT del usuario (respeta RLS)
   }
+  interface FastifyInstance {
+    supabaseAdmin: SupabaseClient
+    invalidateTenantCache: (userId: string) => void
+  }
 }
 
 async function tenantPlugin(fastify: FastifyInstance) {
@@ -36,11 +40,13 @@ async function tenantPlugin(fastify: FastifyInstance) {
   // ── Hook: corre en cada request a rutas protegidas ──
   fastify.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     // Rutas públicas: skip
+    // Las rutas /onboarding/* verifican el JWT por dentro pero
+    // saltan la carga de clínica (porque aún no existe).
     const publicPaths = [
       '/health',
       '/auth/login',
       '/auth/register',
-      '/onboarding/verify',
+      '/onboarding/',
     ]
     if (publicPaths.some(p => request.url.startsWith(p))) return
 
