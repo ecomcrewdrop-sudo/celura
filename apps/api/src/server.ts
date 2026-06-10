@@ -20,6 +20,8 @@ import whatsappRoutes from './routes/whatsapp.js'
 import onboardingRoutes from './routes/onboarding.js'
 import clinicsRoutes from './routes/clinics.js'
 import leadsRoutes from './routes/leads.js'
+import appointmentsRoutes from './routes/appointments.js'
+import conversationsRoutes from './routes/conversations.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { processMessage } from './services/brain.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
@@ -73,11 +75,12 @@ async function buildServer() {
   }))
 
   // ── Rutas ─────────────────────────────────────────────────
-  await fastify.register(onboardingRoutes)                       // /onboarding/*
-  await fastify.register(clinicsRoutes, { prefix: '/api' })      // /api/clinics/*
-  await fastify.register(leadsRoutes, { prefix: '/api' })        // /api/leads/*
-  await fastify.register(whatsappRoutes, { prefix: '/api' })     // /api/whatsapp/*
-  // TODO Día 4+: appointments, conversations, follow-ups
+  await fastify.register(onboardingRoutes)                          // /onboarding/*
+  await fastify.register(clinicsRoutes, { prefix: '/api' })         // /api/clinics/*
+  await fastify.register(leadsRoutes, { prefix: '/api' })           // /api/leads/*
+  await fastify.register(conversationsRoutes, { prefix: '/api' })   // /api/conversations + /api/leads/:id/conversation
+  await fastify.register(appointmentsRoutes, { prefix: '/api' })    // /api/appointments/*
+  await fastify.register(whatsappRoutes, { prefix: '/api' })        // /api/whatsapp/*
 
   // ── Sentry: instrumentación de Fastify (después de rutas) ──
   Sentry.setupFastifyErrorHandler(fastify)

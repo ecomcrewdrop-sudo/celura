@@ -185,6 +185,36 @@ export async function cancelLeadFollowUps(
   }
 }
 
+// ── Cancela todos los seguimientos asociados a una cita ──
+// (cuando una cita se cancela o reagenda)
+export async function cancelAppointmentFollowUps(
+  clinicId: string,
+  appointmentId: string,
+): Promise<void> {
+  const { data: pending } = await supabaseAdmin
+    .from('follow_ups')
+    .select('bull_job_id')
+    .eq('clinic_id', clinicId)
+    .eq('appointment_id', appointmentId)
+    .eq('status', 'pending')
+
+  if (!pending?.length) return
+
+  for (const row of pending) {
+    if (row.bull_job_id) {
+      const job = await followUpQueue.getJob(row.bull_job_id)
+      if (job) await job.remove()
+    }
+  }
+
+  await supabaseAdmin
+    .from('follow_ups')
+    .update({ status: 'cancelled' })
+    .eq('clinic_id', clinicId)
+    .eq('appointment_id', appointmentId)
+    .eq('status', 'pending')
+}
+
 // ── Programa los seguimientos apropiados según el contexto ──
 export async function scheduleFollowUps(
   clinicId: string,
