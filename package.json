@@ -6,12 +6,12 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev:api": "pnpm --filter api dev",
-    "dev:dashboard": "pnpm --filter dashboard dev",
-    "build:api": "pnpm --filter api build",
-    "build:dashboard": "pnpm --filter dashboard build",
-    "db:push": "pnpm --filter db push",
-    "typecheck": "pnpm --filter api typecheck && pnpm --filter dashboard typecheck"
+    "dev:api": "npm -w api run dev",
+    "dev:dashboard": "npm -w dashboard run dev",
+    "build:api": "npm -w api run build",
+    "build:dashboard": "npm -w dashboard run build",
+    "db:push": "npm -w db run push",
+    "typecheck": "npm -w api run typecheck && npm -w dashboard run typecheck"
   },
   "workspaces": [
     "apps/*",
