@@ -30,6 +30,12 @@ const updateConfigSchema = z.object({
     .optional(),
   custom_prompt: z.string().max(2000).optional(),
   escalate_on: z.array(z.string().min(1).max(80)).max(30).optional(),
+  // Análisis clínico de imágenes (Claude Vision)
+  vision_enabled: z.boolean().optional(),
+  vision_sensitivity: z.enum(['conservative', 'balanced', 'thorough']).optional(),
+  vision_focus: z.array(z.string().min(1).max(40)).max(20).optional(),
+  vision_auto_suggest: z.boolean().optional(),
+  vision_disclaimer: z.string().min(10).max(500).optional(),
   // Claves en texto plano: las encriptamos antes de guardar
   claude_api_key: z.string().min(20).max(200).optional(),
   elevenlabs_api_key: z.string().min(20).max(200).optional(),

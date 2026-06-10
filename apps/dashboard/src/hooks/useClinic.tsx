@@ -26,6 +26,11 @@ interface Config {
   escalate_on: string[]
   wa_connected: boolean
   wa_phone: string | null
+  vision_enabled: boolean
+  vision_sensitivity: 'conservative' | 'balanced' | 'thorough'
+  vision_focus: string[]
+  vision_auto_suggest: boolean
+  vision_disclaimer: string
   has_claude_key: boolean
   has_elevenlabs_key: boolean
   claude_api_key_masked: string | null

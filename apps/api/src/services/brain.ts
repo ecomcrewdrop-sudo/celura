@@ -15,6 +15,7 @@ import type {
   Conversation,
   Message,
   ConversationContext,
+  VisionAnalysis,
 } from '../types/tenant.js'
 import { SCORE_EVENTS } from '../types/tenant.js'
 
@@ -93,6 +94,139 @@ REGLAS ABSOLUTAS:
 - NUNCA des diagnósticos definitivos ("puede ser", "se ve como", "vale la pena revisarlo")
 - NUNCA prometas lo que no puedes cumplir
 - SIEMPRE responde en el mismo idioma que el paciente`
+}
+
+// ── Construye el system prompt para el analizador clínico de imágenes ──
+function buildVisionPrompt(config: ClinicConfig, lead: Lead | null): string {
+  const sensitivityGuide = {
+    conservative:
+      'Solo reporta hallazgos EVIDENTES y de alta confianza (>0.8). Si dudas, no lo incluyas. Mejor pecar de cauteloso.',
+    balanced:
+      'Reporta hallazgos con confianza media-alta (>0.6). Equilibra detalle clínico con prudencia.',
+    thorough:
+      'Reporta todo lo observable, incluso hallazgos sutiles (>0.4). Sé exhaustivo pero marca claramente la confianza.',
+  }[config.vision_sensitivity]
+
+  const focus = config.vision_focus.length
+    ? config.vision_focus.join(', ')
+    : 'caries, sarro, encías, desgaste, fracturas, prótesis, ortodoncia'
+
+  const patientName = lead?.name ?? 'el paciente'
+  const assistantName = config.assistant_name
+  const tone = config.tone === 'formal' ? 'usted' : 'tú'
+
+  const autoSuggest = config.vision_auto_suggest
+    ? 'Tras describir los hallazgos, sugiere DE MANERA NATURAL el tratamiento o valoración necesaria e invita a agendar una cita.'
+    : 'Limítate a describir lo observado. NO sugieras tratamientos ni invites a agendar — eso lo hará el asistente conversacional después.'
+
+  return `Eres un odontólogo clínico profesional con 15+ años de experiencia analizando imágenes intraorales y extraorales. Tu trabajo es revisar la foto que ${patientName} envió por WhatsApp y emitir una observación clínica preliminar estructurada.
+
+SENSIBILIDAD DEL ANÁLISIS:
+${sensitivityGuide}
+
+ÁREAS A REVISAR PRIORITARIAMENTE:
+${focus}
+
+PROTOCOLO DE ANÁLISIS:
+1. Evalúa la calidad de la imagen (¿se ve bien? ¿enfoque? ¿iluminación? ¿ángulo útil?)
+2. Identifica hallazgos clínicos visibles, su ubicación anatómica y severidad
+3. Asigna un nivel de confianza honesto a cada hallazgo (0-1)
+4. Determina el estado general de la boca: sano / requiere atención / urgente
+5. Lista los tratamientos que típicamente corresponden a esos hallazgos
+6. Decide si requiere consulta presencial (casi siempre: SÍ)
+7. Redacta un mensaje empático para enviar al paciente por WhatsApp
+
+REGLAS ABSOLUTAS:
+- NUNCA des un diagnóstico definitivo. Solo "observaciones preliminares".
+- Usa lenguaje accesible en el patient_message (no jerga médica pesada).
+- Si la imagen es de muy mala calidad o no muestra dientes, indícalo en image_quality='baja' y findings=[].
+- SIEMPRE incluye este disclaimer literal al final del patient_message: "${config.vision_disclaimer}"
+- Habla al paciente como ${assistantName}, usando "${tone}".
+- Máximo 5-6 líneas en patient_message. WhatsApp es corto.
+${autoSuggest}
+
+FORMATO DE SALIDA OBLIGATORIO (JSON estricto, sin markdown, sin texto extra):
+{
+  "image_quality": "baja" | "aceptable" | "buena",
+  "findings": [
+    {
+      "area": "caries" | "sarro" | "encias" | "desgaste" | "fracturas" | "protesis" | "ortodoncia" | "otro",
+      "severity": "leve" | "moderado" | "severo",
+      "location": "string corto, ej: 'molar superior derecho'",
+      "confidence": 0.0-1.0,
+      "observation": "descripción clínica corta en español"
+    }
+  ],
+  "overall_state": "sano" | "requiere_atencion" | "urgente",
+  "recommended_treatments": ["nombre del tratamiento", ...],
+  "patient_message": "mensaje completo listo para enviar al paciente por WhatsApp, en español, empático",
+  "needs_consultation": true | false
+}
+
+Responde EXCLUSIVAMENTE con el JSON. Nada antes, nada después.`
+}
+
+// ── Analiza una imagen del paciente con Claude Vision ──
+async function analyzeImage(
+  anthropic: Anthropic,
+  config: ClinicConfig,
+  lead: Lead | null,
+  imageBase64: string,
+  mimeType: string,
+  caption: string,
+): Promise<VisionAnalysis | null> {
+  try {
+    const cleanMime = mimeType.split(';')[0]?.trim() ?? 'image/jpeg'
+    const validMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
+    const finalMime = (validMimes as readonly string[]).includes(cleanMime)
+      ? cleanMime as typeof validMimes[number]
+      : 'image/jpeg'
+
+    const userText = caption
+      ? `El paciente envió esta imagen con el mensaje: "${caption}". Analízala clínicamente.`
+      : 'El paciente envió esta imagen sin texto. Analízala clínicamente.'
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1200,
+      system: buildVisionPrompt(config, lead),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: finalMime,
+                data: imageBase64,
+              },
+            },
+            { type: 'text', text: userText },
+          ],
+        },
+      ],
+    })
+
+    const raw = response.content
+      .filter(b => b.type === 'text')
+      .map(b => b.type === 'text' ? b.text : '')
+      .join('')
+      .trim()
+
+    // Limpia posibles fences markdown si Claude los agregó
+    const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+
+    const parsed = JSON.parse(json) as Omit<VisionAnalysis, 'analyzed_at'>
+
+    return {
+      ...parsed,
+      analyzed_at: new Date().toISOString(),
+    }
+  } catch (err) {
+    console.error('[Brain] Error en analyzeImage:', err)
+    return null
+  }
 }
 
 // ── Detecta la intención del mensaje ──
@@ -200,18 +334,63 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 5. Construir el nuevo mensaje del usuario
+    // 5. Preparar cliente de Claude (lo usamos arriba si hay visión)
+    const claudeKey = decrypt(config.claude_key_enc)
+    const anthropic = new Anthropic({ apiKey: claudeKey })
+
+    // 5b. Si es imagen y el análisis clínico está activo → ejecutar Claude Vision
+    let visionAnalysis: VisionAnalysis | null = null
+    if (
+      type === 'image' &&
+      config.vision_enabled &&
+      waMsg.media_data
+    ) {
+      console.log(`[Brain] Analizando imagen clínica para clinic ${clinic_id}`)
+      visionAnalysis = await analyzeImage(
+        anthropic,
+        config,
+        lead,
+        waMsg.media_data,
+        waMsg.media_mimetype ?? 'image/jpeg',
+        content,
+      )
+      if (visionAnalysis) {
+        console.log(
+          `[Brain] Visión OK · estado=${visionAnalysis.overall_state} · hallazgos=${visionAnalysis.findings.length}`
+        )
+      }
+    }
+
+    // 6. Construir el nuevo mensaje del usuario (con contexto enriquecido si hubo visión)
+    let userContentForHistory: string
+    if (type === 'image' && visionAnalysis) {
+      const findingsSummary = visionAnalysis.findings
+        .map(f => `${f.area}/${f.severity} en ${f.location} (conf ${(f.confidence * 100).toFixed(0)}%)`)
+        .join('; ') || 'sin hallazgos relevantes'
+      userContentForHistory =
+        `[Foto del paciente${content ? ` con texto: "${content}"` : ''}]\n` +
+        `Análisis clínico: calidad=${visionAnalysis.image_quality}, estado=${visionAnalysis.overall_state}. ` +
+        `Hallazgos: ${findingsSummary}. ` +
+        `Tratamientos sugeridos: ${visionAnalysis.recommended_treatments.join(', ') || 'ninguno'}.`
+    } else if (type === 'image') {
+      userContentForHistory = content
+        ? `[El paciente envió una foto] "${content}"`
+        : '[El paciente envió una foto de sus dientes]'
+    } else {
+      userContentForHistory = content
+    }
+
     const userMessage: Message = {
       role: 'user',
-      content: type === 'image' ? '[El paciente envió una foto de sus dientes]' : content,
+      content: userContentForHistory,
       timestamp: new Date(timestamp).toISOString(),
       type,
-      analyzed: false,
+      analyzed: !!visionAnalysis,
     }
 
     const updatedMessages = [...conversation.messages, userMessage]
 
-    // 6. Actualizar contexto con la intención detectada
+    // 7. Actualizar contexto con la intención detectada
     const intent = detectIntent(content)
     const updatedContext: ConversationContext = {
       ...conversation.context,
@@ -219,6 +398,12 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       photo_sent: type === 'image' ? true : conversation.context.photo_sent,
       price_asked: intent === 'price' ? true : conversation.context.price_asked,
       appointment_discussed: intent === 'schedule' ? true : conversation.context.appointment_discussed,
+      photo_analysis: visionAnalysis
+        ? `${visionAnalysis.overall_state}: ${visionAnalysis.findings.map(f => f.area).join(', ') || 'sin hallazgos'}`
+        : conversation.context.photo_analysis,
+      vision_history: visionAnalysis
+        ? [...(conversation.context.vision_history ?? []), visionAnalysis]
+        : conversation.context.vision_history,
     }
 
     // 7. Calcular y acumular score
@@ -239,32 +424,38 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         .eq('id', lead.id)
     }
 
-    // 9. Llamar a Claude con el historial completo
-    const claudeKey = decrypt(config.claude_key_enc)
-    const anthropic = new Anthropic({ apiKey: claudeKey })
+    // 9. Generar respuesta del asistente
+    let assistantText: string
+    let tokensUsed = 0
 
-    // Construir mensajes para Claude (últimos 20 para no gastar tokens)
-    const recentMessages = updatedMessages.slice(-20)
-    const claudeMessages: Anthropic.MessageParam[] = recentMessages.map(m => ({
-      role: m.role,
-      content: m.content,
-    }))
+    if (visionAnalysis && config.vision_auto_suggest) {
+      // El analizador clínico ya redactó un patient_message listo para enviar.
+      // Lo usamos directamente para no perder la voz del odontólogo profesional.
+      assistantText = visionAnalysis.patient_message
+    } else {
+      // Llamar a Claude conversacional con el historial completo
+      const recentMessages = updatedMessages.slice(-20)
+      const claudeMessages: Anthropic.MessageParam[] = recentMessages.map(m => ({
+        role: m.role,
+        content: m.content,
+      }))
 
-    const systemPrompt = buildSystemPrompt(config, lead)
+      const systemPrompt = buildSystemPrompt(config, lead)
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 400,  // WhatsApp: respuestas cortas
-      system: systemPrompt,
-      messages: claudeMessages,
-    })
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 400,  // WhatsApp: respuestas cortas
+        system: systemPrompt,
+        messages: claudeMessages,
+      })
 
-    const assistantText = response.content
-      .filter(b => b.type === 'text')
-      .map(b => b.type === 'text' ? b.text : '')
-      .join('')
+      assistantText = response.content
+        .filter(b => b.type === 'text')
+        .map(b => b.type === 'text' ? b.text : '')
+        .join('')
 
-    const tokensUsed = response.usage.input_tokens + response.usage.output_tokens
+      tokensUsed = response.usage.input_tokens + response.usage.output_tokens
+    }
 
     // 10. Guardar respuesta del asistente
     const assistantMessage: Message = {

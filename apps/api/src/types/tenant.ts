@@ -43,8 +43,31 @@ export interface ClinicConfig {
   wa_connected: boolean
   wa_phone: string | null
   wa_connected_at: string | null
+  vision_enabled: boolean
+  vision_sensitivity: 'conservative' | 'balanced' | 'thorough'
+  vision_focus: string[]
+  vision_auto_suggest: boolean
+  vision_disclaimer: string
   created_at: string
   updated_at: string
+}
+
+export interface VisionFinding {
+  area: string                    // 'caries', 'sarro', 'encias', etc
+  severity: 'leve' | 'moderado' | 'severo'
+  location: string                // 'molar superior derecho', 'incisivos', etc
+  confidence: number              // 0-1
+  observation: string             // descripción clínica corta
+}
+
+export interface VisionAnalysis {
+  image_quality: 'baja' | 'aceptable' | 'buena'
+  findings: VisionFinding[]
+  overall_state: 'sano' | 'requiere_atencion' | 'urgente'
+  recommended_treatments: string[]
+  patient_message: string         // mensaje empático listo para enviar al paciente
+  needs_consultation: boolean
+  analyzed_at: string
 }
 
 export interface WeeklySchedule {
@@ -93,7 +116,8 @@ export interface ConversationContext {
   appointment_discussed?: boolean
   price_asked?: boolean
   photo_sent?: boolean
-  photo_analysis?: string         // resultado del análisis de foto
+  photo_analysis?: string         // resultado del análisis de foto (legacy / resumen corto)
+  vision_history?: VisionAnalysis[]  // análisis estructurados por Claude Vision
   name_captured?: boolean
   preferred_schedule?: string
   quoted_price?: number
@@ -162,6 +186,7 @@ export interface IncomingWAMessage {
   type: 'text' | 'image' | 'audio' | 'document'
   media_url?: string
   media_mimetype?: string
+  media_data?: string       // base64 cuando es imagen descargada por Baileys
   timestamp: number         // unix timestamp
 }
 

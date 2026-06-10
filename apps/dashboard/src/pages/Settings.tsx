@@ -5,7 +5,7 @@ import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
-import { Save, Key, Shield } from 'lucide-react'
+import { Save, Key, Shield, Scan, Sparkles } from 'lucide-react'
 
 const DAYS = [
   { key: 'mon', label: 'Lunes' },
@@ -23,6 +23,24 @@ const TONES = [
   { value: 'direct', label: 'Directo', desc: 'Breve y al grano' },
 ]
 
+const SENSITIVITIES = [
+  { value: 'conservative', label: 'Conservador', desc: 'Solo lo evidente' },
+  { value: 'balanced',     label: 'Equilibrado', desc: 'Detalle prudente' },
+  { value: 'thorough',     label: 'Exhaustivo',  desc: 'Todo lo visible' },
+]
+
+const FOCUS_AREAS = [
+  { value: 'caries',      label: 'Caries' },
+  { value: 'sarro',       label: 'Sarro' },
+  { value: 'encias',      label: 'Encías' },
+  { value: 'desgaste',    label: 'Desgaste' },
+  { value: 'fracturas',   label: 'Fracturas' },
+  { value: 'protesis',    label: 'Prótesis' },
+  { value: 'ortodoncia',  label: 'Ortodoncia' },
+  { value: 'manchas',     label: 'Manchas' },
+  { value: 'alineacion',  label: 'Alineación' },
+]
+
 export default function Settings() {
   const { config, refresh } = useClinic()
   const [form, setForm] = useState({
@@ -36,6 +54,11 @@ export default function Settings() {
     claude_api_key: '',
     elevenlabs_api_key: '',
     schedule: {} as Record<string, string | null>,
+    vision_enabled: true,
+    vision_sensitivity: 'balanced' as 'conservative' | 'balanced' | 'thorough',
+    vision_focus: [] as string[],
+    vision_auto_suggest: true,
+    vision_disclaimer: '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -53,6 +76,11 @@ export default function Settings() {
         claude_api_key: '',
         elevenlabs_api_key: '',
         schedule: config.schedule ?? {},
+        vision_enabled: config.vision_enabled ?? true,
+        vision_sensitivity: config.vision_sensitivity ?? 'balanced',
+        vision_focus: config.vision_focus ?? [],
+        vision_auto_suggest: config.vision_auto_suggest ?? true,
+        vision_disclaimer: config.vision_disclaimer ?? '',
       })
     }
   }, [config])
@@ -69,6 +97,11 @@ export default function Settings() {
       treatments: form.treatments.split(',').map((t) => t.trim()).filter(Boolean),
       escalate_on: form.escalate_on.split(',').map((t) => t.trim()).filter(Boolean),
       schedule: form.schedule,
+      vision_enabled: form.vision_enabled,
+      vision_sensitivity: form.vision_sensitivity,
+      vision_focus: form.vision_focus,
+      vision_auto_suggest: form.vision_auto_suggest,
+      vision_disclaimer: form.vision_disclaimer,
     }
     if (form.claude_api_key) body.claude_api_key = form.claude_api_key
     if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
@@ -192,6 +225,148 @@ export default function Settings() {
                 />
               </div>
             ))}
+          </div>
+        </Card>
+
+        {/* Análisis clínico de imágenes */}
+        <Card>
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2">
+              <Scan className="mt-0.5 h-4 w-4 text-lime-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-white">Análisis clínico de imágenes</h3>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  La IA actúa como odontólogo profesional al recibir fotos del paciente: detecta hallazgos,
+                  decide severidad y guía la conversación.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, vision_enabled: !form.vision_enabled })}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                form.vision_enabled ? 'bg-lime-500' : 'bg-dark-500'
+              }`}
+              aria-label="Activar análisis clínico"
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  form.vision_enabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div
+            className={`space-y-5 transition-opacity ${
+              form.vision_enabled ? 'opacity-100' : 'pointer-events-none opacity-40'
+            }`}
+          >
+            {/* Sensibilidad */}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-zinc-300">Sensibilidad clínica</label>
+              <div className="grid grid-cols-3 gap-2">
+                {SENSITIVITIES.map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() =>
+                      setForm({ ...form, vision_sensitivity: s.value as typeof form.vision_sensitivity })
+                    }
+                    className={`rounded-lg border px-3 py-2 text-left transition-all ${
+                      form.vision_sensitivity === s.value
+                        ? 'border-lime-500/50 bg-lime-500/10'
+                        : 'border-dark-500 bg-dark-700 hover:border-dark-400'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs font-medium ${
+                        form.vision_sensitivity === s.value ? 'text-lime-400' : 'text-white'
+                      }`}
+                    >
+                      {s.label}
+                    </p>
+                    <p className="text-[10px] text-zinc-500">{s.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Áreas a priorizar */}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-zinc-300">Áreas clínicas a priorizar</label>
+              <div className="flex flex-wrap gap-2">
+                {FOCUS_AREAS.map((a) => {
+                  const active = form.vision_focus.includes(a.value)
+                  return (
+                    <button
+                      key={a.value}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          vision_focus: active
+                            ? form.vision_focus.filter((v) => v !== a.value)
+                            : [...form.vision_focus, a.value],
+                        })
+                      }
+                      className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                        active
+                          ? 'border-lime-500/50 bg-lime-500/15 text-lime-300'
+                          : 'border-dark-500 bg-dark-700 text-zinc-400 hover:border-dark-400'
+                      }`}
+                    >
+                      {a.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-zinc-500">
+                La IA enfocará su análisis aquí primero. Mínimo 1, recomendado 4-7.
+              </p>
+            </div>
+
+            {/* Auto-sugerencia */}
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-dark-500 bg-dark-700/50 px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <Sparkles className="mt-0.5 h-4 w-4 text-lime-400" />
+                <div>
+                  <p className="text-sm font-medium text-white">Sugerir tratamiento e invitar a agendar</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Tras analizar, la IA propone tratamiento y empuja al paciente a reservar valoración.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, vision_auto_suggest: !form.vision_auto_suggest })}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                  form.vision_auto_suggest ? 'bg-lime-500' : 'bg-dark-500'
+                }`}
+                aria-label="Auto sugerencia"
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                    form.vision_auto_suggest ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Disclaimer */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-zinc-300">Disclaimer clínico</label>
+              <textarea
+                value={form.vision_disclaimer}
+                onChange={(e) => setForm({ ...form, vision_disclaimer: e.target.value })}
+                rows={2}
+                className="w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-lime-500/50"
+                placeholder="Esto es una observación preliminar. El diagnóstico definitivo requiere valoración presencial."
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                La IA siempre añade esta frase al cerrar su análisis. Te protege legalmente.
+              </p>
+            </div>
           </div>
         </Card>
 

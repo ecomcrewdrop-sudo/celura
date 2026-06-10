@@ -9,6 +9,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  downloadMediaMessage,
   proto,
   WASocket,
   BaileysEventMap,
@@ -27,6 +28,7 @@ export interface WAMessage {
   type: 'text' | 'image' | 'audio' | 'document'
   media_url?: string
   media_mimetype?: string
+  media_data?: string         // base64 de la imagen descargada
   timestamp: number
   message_id: string
 }
@@ -206,6 +208,23 @@ export async function startSession(
         type: msgType,
         timestamp: (msg.messageTimestamp as number) * 1000 || Date.now(),
         message_id: msg.key.id ?? '',
+      }
+
+      // ── Descargar imagen como base64 para análisis con Claude Vision ──
+      if (msgType === 'image' && msg.message?.imageMessage) {
+        try {
+          const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            { logger, reuploadRequest: sock.updateMediaMessage }
+          ) as Buffer
+          waMsg.media_mimetype = msg.message.imageMessage.mimetype ?? 'image/jpeg'
+          waMsg.media_data = buffer.toString('base64')
+          console.log(`[WA] Imagen descargada (${buffer.byteLength} bytes) de ${waMsg.from_phone}`)
+        } catch (err) {
+          console.error(`[WA] Error descargando imagen de ${waMsg.from_phone}:`, err)
+        }
       }
 
       console.log(`[WA] Mensaje de ${waMsg.from_phone} para clinic ${clinicId}: "${waMsg.content.slice(0, 50)}"`)
