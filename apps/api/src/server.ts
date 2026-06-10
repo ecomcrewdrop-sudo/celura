@@ -77,6 +77,11 @@ async function buildServer() {
       }
       return env.JWT_SECRET
     },
+    formatUser: (decoded: string | object | Buffer) => {
+      if (decoded && typeof decoded === 'object' && 'payload' in decoded)
+        return (decoded as { payload: object }).payload
+      return decoded
+    },
   })
 
   // ── Plugin de aislamiento por tenant ──────────────────────
