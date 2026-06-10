@@ -12,14 +12,22 @@
 //   - update por endpoint protegido (config/clinic ajena)
 // ============================================================
 import crypto from 'node:crypto'
+import { readFileSync } from 'node:fs'
+
+// Leer .env directamente para evitar problemas de shell con chars especiales
+const envFile = readFileSync(new URL('../apps/api/.env', import.meta.url), 'utf8')
+function envVal(key) {
+  const match = envFile.match(new RegExp(`^${key}=(.+)$`, 'm'))
+  return match?.[1]?.trim() ?? ''
+}
 
 const API = 'https://api.celura.clinic'
-const SUPABASE_URL = 'https://xxbrzknouhahzohpjadd.supabase.co'
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-const JWT_SECRET = process.env.JWT_SECRET ?? ''
+const SUPABASE_URL = envVal('SUPABASE_URL')
+const SERVICE_ROLE_KEY = envVal('SUPABASE_SERVICE_ROLE_KEY')
+const JWT_SECRET = envVal('JWT_SECRET')
 
 if (!SERVICE_ROLE_KEY || !JWT_SECRET) {
-  console.error('Faltan SUPABASE_SERVICE_ROLE_KEY o JWT_SECRET en env')
+  console.error('Faltan SUPABASE_SERVICE_ROLE_KEY o JWT_SECRET en .env')
   process.exit(1)
 }
 
