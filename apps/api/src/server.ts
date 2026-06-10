@@ -49,6 +49,10 @@ async function buildServer() {
   await fastify.register(cors, {
     origin: env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Length'],
+    maxAge: 86_400,
   })
 
   await fastify.register(rateLimit, {
