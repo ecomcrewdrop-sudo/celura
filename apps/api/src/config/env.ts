@@ -36,6 +36,9 @@ const schema = z.object({
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
   WA_SESSIONS_PATH: z.string().default('./sessions'),
   API_URL: z.string().optional(),
+
+  // Sentry (opcional: si no está, error tracking se desactiva con un warning)
+  SENTRY_DSN: z.string().url().optional(),
 })
 
 const parsed = schema.safeParse(process.env)

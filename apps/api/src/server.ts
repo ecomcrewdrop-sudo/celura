@@ -2,8 +2,13 @@
 //  CELURA · Servidor principal Fastify
 // ============================================================
 
+// IMPORTANTE: Sentry debe inicializarse ANTES que cualquier otra
+// importación para auto-instrumentar Fastify, Node, HTTP, etc.
+import './instrument.js'
+
 import 'dotenv/config'
 import { env } from './config/env.js'   // valida el entorno ANTES de cargar el resto
+import * as Sentry from '@sentry/node'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
@@ -68,6 +73,9 @@ async function buildServer() {
   await fastify.register(whatsappRoutes, { prefix: '/api' })
   // TODO Día 3+: leads, config, onboarding, appointments
 
+  // ── Sentry: instrumentación de Fastify (después de rutas) ──
+  Sentry.setupFastifyErrorHandler(fastify)
+
   // ── 404 consistente ───────────────────────────────────────
   fastify.setNotFoundHandler((req, reply) => {
     reply.status(404).send({ error: 'Ruta no encontrada', path: req.url })
@@ -78,6 +86,10 @@ async function buildServer() {
     const status = error.statusCode ?? 500
     if (status >= 500) {
       req.log.error({ err: error }, 'Error no manejado')
+      Sentry.captureException(error, {
+        tags: { route: req.url, method: req.method },
+        extra: { clinic_id: (req as { clinic?: { id?: string } }).clinic?.id },
+      })
     } else {
       req.log.warn({ err: error.message }, 'Error de request')
     }
@@ -101,6 +113,10 @@ async function main() {
   waEvents.on('message', (msg: WAMessage) => {
     processMessage(msg).catch((err) => {
       server.log.error({ err, clinic: msg.clinic_id }, 'Error procesando mensaje WA')
+      Sentry.captureException(err, {
+        tags: { source: 'whatsapp_brain' },
+        extra: { clinic_id: msg.clinic_id },
+      })
     })
   })
 
@@ -149,11 +165,13 @@ async function main() {
   // ── Red de seguridad: errores no capturados ───────────────
   process.on('unhandledRejection', (reason) => {
     server.log.error({ reason }, 'Unhandled rejection')
+    Sentry.captureException(reason)
   })
   process.on('uncaughtException', (err) => {
     server.log.fatal({ err }, 'Uncaught exception — reiniciando proceso')
-    // Salir para que Railway reinicie el contenedor en estado limpio
-    void shutdown('uncaughtException')
+    Sentry.captureException(err)
+    // Dar tiempo a Sentry para enviar antes de cerrar
+    void Sentry.flush(2000).finally(() => shutdown('uncaughtException'))
   })
 }
 
