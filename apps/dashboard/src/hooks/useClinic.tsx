@@ -37,6 +37,7 @@ interface ClinicCtx {
   config: Config | null
   loading: boolean
   error: string | null
+  status: number | null
   refresh: () => Promise<void>
 }
 
@@ -47,11 +48,13 @@ export function ClinicProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<Config | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<number | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     const res = await api.get<{ clinic: Clinic; config: Config }>('/api/clinics/me')
+    setStatus(res.status)
     if (res.data) {
       setClinic(res.data.clinic)
       setConfig(res.data.config)
@@ -64,7 +67,7 @@ export function ClinicProvider({ children }: { children: ReactNode }) {
   useEffect(() => { refresh() }, [refresh])
 
   return (
-    <ClinicContext.Provider value={{ clinic, config, loading, error, refresh }}>
+    <ClinicContext.Provider value={{ clinic, config, loading, error, status, refresh }}>
       {children}
     </ClinicContext.Provider>
   )

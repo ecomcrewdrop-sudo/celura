@@ -1,12 +1,7 @@
 import { Outlet } from 'react-router-dom'
-import { useEffect } from 'react'
 import Sidebar from './Sidebar'
-import { useClinic } from '@/hooks/useClinic'
 
 export default function Layout() {
-  const { refresh } = useClinic()
-  useEffect(() => { refresh() }, [refresh])
-
   return (
     <div className="min-h-screen bg-dark-900">
       <Sidebar />

@@ -19,9 +19,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function ClinicGuard({ children }: { children: React.ReactNode }) {
-  const { clinic, loading, error } = useClinic()
+  const { clinic, loading, error, status } = useClinic()
   if (loading) return <SplashScreen />
-  if (error?.includes('Clínica no encontrada') || (!clinic && !loading)) {
+  if (status === 401) return <Navigate to="/login" replace />
+  if (status === 403 || (!clinic && !loading)) {
     return <Navigate to="/onboarding" replace />
   }
   return <>{children}</>
