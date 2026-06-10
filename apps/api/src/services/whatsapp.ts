@@ -31,6 +31,13 @@ export interface WAMessage {
   media_data?: string         // base64 de la imagen descargada
   timestamp: number
   message_id: string
+  /**
+   * Dirección del mensaje:
+   *  - 'incoming' = paciente → asistente (debe activar el brain)
+   *  - 'outgoing' = doctor envió desde su teléfono (solo persistir, no responder)
+   *  - 'history'  = mensaje del histórico al sincronizar (solo persistir)
+   */
+  direction: 'incoming' | 'outgoing' | 'history'
 }
 
 // Emitter global para que el router de mensajes escuche
@@ -129,7 +136,10 @@ export async function startSession(
     },
     browser: ['Celura', 'Chrome', '121.0.0'],
     generateHighQualityLinkPreview: false,
-    syncFullHistory: false,
+    // Sincroniza el histórico al escanear el QR. Así el doctor ve
+    // las conversaciones existentes en el panel desde el día 1.
+    syncFullHistory: true,
+    markOnlineOnConnect: false,
   })
 
   activeSessions.set(clinicId, sock)
@@ -179,60 +189,96 @@ export async function startSession(
     }
   })
 
-  // ── Procesar mensajes entrantes ──
+  // ── Procesar mensajes (entrantes, salientes desde el tel del doctor) ──
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return  // solo mensajes nuevos, no histórico
+    // 'notify' = mensaje en vivo · 'append' = sincronización de chats
+    if (type !== 'notify' && type !== 'append') return
 
     for (const msg of messages) {
-      // Ignorar mensajes propios y de estado
-      if (msg.key.fromMe) continue
-      if (msg.key.remoteJid === 'status@broadcast') continue
+      const waMsg = await buildWAMessage(sock, clinicId, msg, type === 'notify' ? null : 'history')
+      if (!waMsg) continue
 
-      const jid = msg.key.remoteJid
-      if (!jid) continue
-
-      // Ignorar mensajes de grupos
-      if (jid.endsWith('@g.us')) continue
-
-      const text = extractText(msg)
-      const msgType = getMessageType(msg)
-
-      // Para texto, necesitamos contenido
-      if (msgType === 'text' && !text) continue
-
-      const waMsg: WAMessage = {
-        clinic_id: clinicId,
-        from_jid: jid,
-        from_phone: jidToPhone(jid),
-        content: text ?? '',
-        type: msgType,
-        timestamp: (msg.messageTimestamp as number) * 1000 || Date.now(),
-        message_id: msg.key.id ?? '',
+      if (waMsg.direction === 'incoming') {
+        console.log(`[WA] In  ← ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
+        waEvents.emit('message', waMsg)              // brain procesa y responde
+      } else {
+        console.log(`[WA] Out → ${waMsg.from_phone} (clinic ${clinicId}, ${waMsg.direction}): "${waMsg.content.slice(0, 50)}"`)
+        waEvents.emit('message:outgoing', waMsg)     // solo persistir
       }
-
-      // ── Descargar imagen como base64 para análisis con Claude Vision ──
-      if (msgType === 'image' && msg.message?.imageMessage) {
-        try {
-          const buffer = await downloadMediaMessage(
-            msg,
-            'buffer',
-            {},
-            { logger, reuploadRequest: sock.updateMediaMessage }
-          ) as Buffer
-          waMsg.media_mimetype = msg.message.imageMessage.mimetype ?? 'image/jpeg'
-          waMsg.media_data = buffer.toString('base64')
-          console.log(`[WA] Imagen descargada (${buffer.byteLength} bytes) de ${waMsg.from_phone}`)
-        } catch (err) {
-          console.error(`[WA] Error descargando imagen de ${waMsg.from_phone}:`, err)
-        }
-      }
-
-      console.log(`[WA] Mensaje de ${waMsg.from_phone} para clinic ${clinicId}: "${waMsg.content.slice(0, 50)}"`)
-
-      // Emitir para que el brain.ts lo procese
-      waEvents.emit('message', waMsg)
     }
   })
+
+  // ── Sincronizar histórico al primer login (Baileys lo emite una vez) ──
+  sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
+    if (!messages || messages.length === 0) return
+    console.log(`[WA] Histórico recibido para clinic ${clinicId}: ${messages.length} mensajes (final=${isLatest})`)
+
+    for (const msg of messages) {
+      const waMsg = await buildWAMessage(sock, clinicId, msg, 'history')
+      if (!waMsg) continue
+      waEvents.emit('message:history', waMsg)
+    }
+  })
+}
+
+/**
+ * Convierte un mensaje Baileys en WAMessage normalizado.
+ * Filtra grupos, status, mensajes vacíos.
+ * Si `forcedDirection` viene definido, lo respeta (usado para histórico).
+ */
+async function buildWAMessage(
+  sock: WASocket,
+  clinicId: string,
+  msg: proto.IWebMessageInfo,
+  forcedDirection: WAMessage['direction'] | null,
+): Promise<WAMessage | null> {
+  const jid = msg.key.remoteJid
+  if (!jid) return null
+  if (jid === 'status@broadcast') return null
+  if (jid.endsWith('@g.us')) return null
+  if (jid.endsWith('@newsletter')) return null
+
+  const text = extractText(msg)
+  const msgType = getMessageType(msg)
+  if (msgType === 'text' && !text) return null
+
+  const direction: WAMessage['direction'] =
+    forcedDirection ?? (msg.key.fromMe ? 'outgoing' : 'incoming')
+
+  const waMsg: WAMessage = {
+    clinic_id: clinicId,
+    from_jid: jid,
+    from_phone: jidToPhone(jid),
+    content: text ?? '',
+    type: msgType,
+    timestamp: (msg.messageTimestamp as number) * 1000 || Date.now(),
+    message_id: msg.key.id ?? '',
+    direction,
+  }
+
+  // Solo descargamos la imagen para mensajes en vivo entrantes — el
+  // histórico se queda como referencia (no gastamos vision en cada foto vieja).
+  if (
+    msgType === 'image' &&
+    direction === 'incoming' &&
+    forcedDirection === null &&
+    msg.message?.imageMessage
+  ) {
+    try {
+      const buffer = (await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        { logger, reuploadRequest: sock.updateMediaMessage },
+      )) as Buffer
+      waMsg.media_mimetype = msg.message.imageMessage.mimetype ?? 'image/jpeg'
+      waMsg.media_data = buffer.toString('base64')
+    } catch (err) {
+      console.error(`[WA] Error descargando imagen de ${waMsg.from_phone}:`, err)
+    }
+  }
+
+  return waMsg
 }
 
 /**

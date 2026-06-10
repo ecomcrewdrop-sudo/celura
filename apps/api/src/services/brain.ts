@@ -258,6 +258,90 @@ function calcScorePoints(
   return points
 }
 
+// ── Persistir un mensaje SIN invocar Claude ni workflows ──
+// Usado para:
+//   - 'outgoing'  → el doctor escribió desde su teléfono
+//   - 'history'   → mensaje del histórico al sincronizar al escanear QR
+// Solo crea/actualiza el lead y agrega el mensaje al array de la conversación.
+export async function persistRawMessage(waMsg: WAMessage): Promise<void> {
+  const { clinic_id, from_phone, from_jid, content, type, timestamp, direction } = waMsg
+
+  try {
+    // 1. Upsert del lead (sin tocar stage si ya existe)
+    const { data: lead } = await supabaseAdmin
+      .from('leads')
+      .upsert(
+        {
+          clinic_id,
+          phone: from_phone,
+          phone_wa_id: from_jid,
+          last_message_at: new Date(timestamp).toISOString(),
+        },
+        {
+          onConflict: 'clinic_id,phone',
+          ignoreDuplicates: false,
+        },
+      )
+      .select()
+      .single<Lead>()
+
+    if (!lead) return
+
+    // 2. Upsert de la conversación (la crea si no existe)
+    let { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('id, messages')
+      .eq('clinic_id', clinic_id)
+      .eq('lead_id', lead.id)
+      .single<{ id: string; messages: Message[] }>()
+
+    if (!conversation) {
+      const { data: newConv } = await supabaseAdmin
+        .from('conversations')
+        .insert({
+          clinic_id,
+          lead_id: lead.id,
+          messages: [],
+          context: {},
+        })
+        .select('id, messages')
+        .single<{ id: string; messages: Message[] }>()
+      conversation = newConv
+    }
+    if (!conversation) return
+
+    // 3. Evitar duplicados por message_id (Baileys re-emite a veces)
+    const alreadyPresent = (conversation.messages ?? []).some(
+      (m) => (m as Message & { wa_id?: string }).wa_id === waMsg.message_id,
+    )
+    if (alreadyPresent) return
+
+    const role: Message['role'] = direction === 'outgoing' ? 'assistant' : 'user'
+    const newMessage: Message & { wa_id?: string; source?: string } = {
+      role,
+      // historial entrante (paciente) = user; salientes desde el tel del doctor = assistant
+      content: content || (type === 'image' ? '[Foto]' : ''),
+      timestamp: new Date(timestamp).toISOString(),
+      type,
+      wa_id: waMsg.message_id,
+      source: direction,   // 'history' | 'outgoing'
+    }
+
+    const updatedMessages = [...(conversation.messages ?? []), newMessage]
+    // Ordenar por timestamp por si el histórico llega desordenado
+    updatedMessages.sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    )
+
+    await supabaseAdmin
+      .from('conversations')
+      .update({ messages: updatedMessages })
+      .eq('id', conversation.id)
+  } catch (err) {
+    console.error(`[Brain] persistRawMessage error (${direction}) ${from_phone}:`, err)
+  }
+}
+
 // ── Procesa un mensaje entrante completo ──
 export async function processMessage(waMsg: WAMessage): Promise<void> {
   const { clinic_id, from_phone, from_jid, content, type, timestamp } = waMsg

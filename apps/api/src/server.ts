@@ -24,7 +24,7 @@ import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
 import workflowsRoutes from './routes/workflows.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
-import { processMessage } from './services/brain.js'
+import { processMessage, persistRawMessage } from './services/brain.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
 import type { WAMessage } from './services/whatsapp.js'
 
@@ -148,6 +148,20 @@ async function main() {
         tags: { source: 'whatsapp_brain' },
         extra: { clinic_id: msg.clinic_id },
       })
+    })
+  })
+
+  // Mensajes salientes desde el teléfono del doctor → solo persistir, no responder
+  waEvents.on('message:outgoing', (msg: WAMessage) => {
+    persistRawMessage(msg).catch((err) => {
+      server.log.error({ err, clinic: msg.clinic_id }, 'Error persistiendo mensaje saliente')
+    })
+  })
+
+  // Histórico recibido al escanear QR → solo persistir
+  waEvents.on('message:history', (msg: WAMessage) => {
+    persistRawMessage(msg).catch((err) => {
+      server.log.error({ err, clinic: msg.clinic_id }, 'Error persistiendo histórico')
     })
   })
 
