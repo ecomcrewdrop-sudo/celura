@@ -5,7 +5,7 @@ import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
-import { Save, Key, Shield, Scan, Sparkles } from 'lucide-react'
+import { Save, Key, Shield, Scan, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
 
 const DAYS = [
   { key: 'mon', label: 'Lunes' },
@@ -61,7 +61,7 @@ export default function Settings() {
     vision_disclaimer: '',
   })
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   useEffect(() => {
     if (config) {
@@ -85,34 +85,63 @@ export default function Settings() {
     }
   }, [config])
 
+  // Normaliza una entrada de horario al formato HH:MM-HH:MM, o null si está vacío
+  const normalizeScheduleEntry = (raw: string | null | undefined): string | null => {
+    if (!raw) return null
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    // Permitir entradas tipo "8:00-18:00" → "08:00-18:00"
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
+    if (!match) return trimmed   // dejamos pasar y que el server valide
+    const [, h1, m1, h2, m2] = match
+    return `${h1.padStart(2, '0')}:${m1}-${h2.padStart(2, '0')}:${m2}`
+  }
+
   const handleSave = async () => {
     setSaving(true)
-    setSaved(false)
-    const body: Record<string, unknown> = {
-      assistant_name: form.assistant_name,
-      tone: form.tone,
-      greeting: form.greeting,
-      farewell: form.farewell,
-      custom_prompt: form.custom_prompt,
-      treatments: form.treatments.split(',').map((t) => t.trim()).filter(Boolean),
-      escalate_on: form.escalate_on.split(',').map((t) => t.trim()).filter(Boolean),
-      schedule: form.schedule,
-      vision_enabled: form.vision_enabled,
-      vision_sensitivity: form.vision_sensitivity,
-      vision_focus: form.vision_focus,
-      vision_auto_suggest: form.vision_auto_suggest,
-      vision_disclaimer: form.vision_disclaimer,
-    }
-    if (form.claude_api_key) body.claude_api_key = form.claude_api_key
-    if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
+    setFeedback(null)
 
-    const res = await api.patch('/api/clinics/me/config', body)
-    setSaving(false)
-    if (!res.error) {
-      setSaved(true)
+    try {
+      const normalizedSchedule = Object.fromEntries(
+        Object.entries(form.schedule).map(([k, v]) => [k, normalizeScheduleEntry(v)]),
+      )
+
+      const body: Record<string, unknown> = {
+        assistant_name: form.assistant_name,
+        tone: form.tone,
+        greeting: form.greeting,
+        farewell: form.farewell,
+        custom_prompt: form.custom_prompt,
+        treatments: form.treatments.split(',').map((t) => t.trim()).filter(Boolean),
+        escalate_on: form.escalate_on.split(',').map((t) => t.trim()).filter(Boolean),
+        schedule: normalizedSchedule,
+        vision_enabled: form.vision_enabled,
+        vision_sensitivity: form.vision_sensitivity,
+        vision_focus: form.vision_focus,
+        vision_auto_suggest: form.vision_auto_suggest,
+        vision_disclaimer: form.vision_disclaimer,
+      }
+      if (form.claude_api_key) body.claude_api_key = form.claude_api_key
+      if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
+
+      const res = await api.patch('/api/clinics/me/config', body)
+
+      if (res.error) {
+        setFeedback({ type: 'error', msg: res.error })
+        return
+      }
+
+      setFeedback({ type: 'success', msg: 'Configuración guardada correctamente.' })
       setForm((f) => ({ ...f, claude_api_key: '', elevenlabs_api_key: '' }))
       refresh()
-      setTimeout(() => setSaved(false), 3000)
+      setTimeout(() => setFeedback(null), 4000)
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        msg: err instanceof Error ? err.message : 'Error inesperado al guardar.',
+      })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -122,11 +151,31 @@ export default function Settings() {
         title="Configuración"
         subtitle="Personaliza tu asistente IA"
         action={
-          <Button onClick={handleSave} loading={saving}>
-            <Save className="h-4 w-4" /> {saved ? 'Guardado!' : 'Guardar cambios'}
+          <Button onClick={handleSave} loading={saving} disabled={saving}>
+            <Save className="h-4 w-4" /> {saving ? 'Guardando…' : 'Guardar cambios'}
           </Button>
         }
       />
+
+      {/* Banner de feedback (fijo arriba del contenido) */}
+      {feedback && (
+        <div
+          className={`mb-5 flex items-start gap-2.5 rounded-xl border px-4 py-3 ${
+            feedback.type === 'success'
+              ? 'border-lime-500/30 bg-lime-500/[0.08]'
+              : 'border-red-500/30 bg-red-500/[0.08]'
+          }`}
+        >
+          {feedback.type === 'success' ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-lime-400" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+          )}
+          <p className={`text-sm ${feedback.type === 'success' ? 'text-lime-200' : 'text-red-200'}`}>
+            {feedback.msg}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Personalidad */}
