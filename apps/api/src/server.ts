@@ -24,7 +24,8 @@ import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
 import workflowsRoutes from './routes/workflows.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
-import { processMessage, persistRawMessage } from './services/brain.js'
+import { persistRawMessage } from './services/brain.js'
+import { enqueueIncoming } from './services/humanizer.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
 import type { WAMessage } from './services/whatsapp.js'
 
@@ -143,16 +144,20 @@ async function buildServer() {
 async function main() {
   const server = await buildServer()
 
-  // ── Conectar el brain al bus de mensajes de WhatsApp ──────
-  // Un fallo procesando un mensaje NUNCA debe tumbar el proceso.
+  // ── Conectar el bus de WhatsApp al humanizer ──────────────
+  // El humanizer buffer-ea mensajes pegados del mismo paciente (anti-rebote),
+  // marca como leído, dispara la animación de "escribiendo…" y envía la
+  // respuesta con timing humano. Un fallo aquí NUNCA tumba el proceso.
   waEvents.on('message', (msg: WAMessage) => {
-    processMessage(msg).catch((err) => {
-      server.log.error({ err, clinic: msg.clinic_id }, 'Error procesando mensaje WA')
+    try {
+      enqueueIncoming(msg)
+    } catch (err) {
+      server.log.error({ err, clinic: msg.clinic_id }, 'Error encolando mensaje WA')
       Sentry.captureException(err, {
-        tags: { source: 'whatsapp_brain' },
+        tags: { source: 'whatsapp_humanizer' },
         extra: { clinic_id: msg.clinic_id },
       })
-    })
+    }
   })
 
   // Mensajes salientes desde el teléfono del doctor → solo persistir, no responder

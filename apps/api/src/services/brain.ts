@@ -5,7 +5,8 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js'
-import { sendMessage, type WAMessage } from './whatsapp.js'
+import { type WAMessage } from './whatsapp.js'
+import { sendHumanlike } from './humanizer.js'
 import { scheduleFollowUps } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import { AIClient } from './ai-provider.js'
@@ -615,8 +616,9 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       )
     }
 
-    // 13. Enviar respuesta por WhatsApp
-    const sent = await sendMessage(clinic_id, from_phone, assistantText)
+    // 13. Enviar respuesta por WhatsApp con comportamiento humano
+    //     (composing → delay proporcional → split en burbujas → retry)
+    const sent = await sendHumanlike(clinic_id, from_phone, assistantText)
     if (!sent) {
       console.error(`[Brain] No se pudo enviar respuesta a ${from_phone}`)
     }

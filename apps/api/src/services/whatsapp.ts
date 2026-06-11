@@ -45,7 +45,17 @@ export interface WAMessage {
    *  - 'history'  = mensaje del histórico al sincronizar (solo persistir)
    */
   direction: 'incoming' | 'outgoing' | 'history'
+  /**
+   * Clave opaca del mensaje en Baileys. Necesaria para marcar como leído
+   * (doble check azul) y mantener la ilusión de un humano leyendo.
+   */
+  wa_key?: { remoteJid: string; id: string; fromMe: boolean; participant?: string }
 }
+
+// ── Estados de presencia que Baileys soporta ─────────────
+export type PresenceState = 'available' | 'unavailable' | 'composing' | 'recording' | 'paused'
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
 // Emitter global para que el router de mensajes escuche
 export const waEvents = new EventEmitter()
@@ -271,6 +281,14 @@ async function buildWAMessage(
     timestamp: (msg.messageTimestamp as number) * 1000 || Date.now(),
     message_id: msg.key.id ?? '',
     direction,
+    wa_key: msg.key.id
+      ? {
+          remoteJid: jid,
+          id: msg.key.id,
+          fromMe: msg.key.fromMe ?? false,
+          ...(msg.key.participant ? { participant: msg.key.participant } : {}),
+        }
+      : undefined,
   }
 
   // Solo descargamos la imagen para mensajes en vivo entrantes — el
@@ -299,7 +317,15 @@ async function buildWAMessage(
 }
 
 /**
- * Envía un mensaje de texto a un número
+ * Convierte un número "+573001234567" al JID de WhatsApp.
+ */
+function phoneToJid(phone: string): string {
+  return `${phone.replace('+', '')}@s.whatsapp.net`
+}
+
+/**
+ * Envía un mensaje de texto a un número (un intento, sin retry).
+ * Usar `sendMessageWithRetry` para el flujo de producción.
  */
 export async function sendMessage(
   clinicId: string,
@@ -312,16 +338,84 @@ export async function sendMessage(
     return false
   }
 
-  // Normalizar: "+573001234567" → "573001234567@s.whatsapp.net"
-  const jid = `${toPhone.replace('+', '')}@s.whatsapp.net`
-
   try {
-    await sock.sendMessage(jid, { text })
+    await sock.sendMessage(phoneToJid(toPhone), { text })
     return true
   } catch (err) {
     console.error(`[WA] Error enviando mensaje a ${toPhone}:`, err)
     return false
   }
+}
+
+/**
+ * Envía con reintentos exponenciales. Si los 3 intentos fallan, devuelve false.
+ * Intervalos: inmediato, 2s, 5s.
+ */
+export async function sendMessageWithRetry(
+  clinicId: string,
+  toPhone: string,
+  text: string,
+): Promise<boolean> {
+  const delays = [0, 2000, 5000]
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]! > 0) await sleep(delays[i]!)
+    const ok = await sendMessage(clinicId, toPhone, text)
+    if (ok) {
+      if (i > 0) console.log(`[WA] Envío OK en reintento #${i + 1} → ${toPhone}`)
+      return true
+    }
+    console.warn(`[WA] Envío fallido (intento ${i + 1}/${delays.length}) → ${toPhone}`)
+  }
+  return false
+}
+
+/**
+ * Actualiza la presencia para un chat puntual (composing = "escribiendo...",
+ * paused = quitar el indicador, recording = "grabando audio", etc.).
+ * Antes de cambiar presencia para un JID, Baileys exige enviar
+ * `sendPresenceUpdate('available')` global (lo hacemos cacheado).
+ */
+const presenceInitialized = new Set<string>()
+export async function setChatPresence(
+  clinicId: string,
+  toPhone: string,
+  state: PresenceState,
+): Promise<void> {
+  const sock = activeSessions.get(clinicId)
+  if (!sock) return
+  try {
+    // Solo la primera vez por sesión: anunciar que estamos "online"
+    if (!presenceInitialized.has(clinicId)) {
+      await sock.sendPresenceUpdate('available')
+      presenceInitialized.add(clinicId)
+    }
+    await sock.sendPresenceUpdate(state, phoneToJid(toPhone))
+  } catch (err) {
+    // Presencia es best-effort: si falla no rompemos el flujo
+    console.warn(`[WA] No se pudo actualizar presencia ${state} para ${toPhone}:`, (err as Error).message)
+  }
+}
+
+/**
+ * Marca uno o varios mensajes como leídos (doble check azul en el remitente).
+ * Es lo que hace un humano al abrir el chat.
+ */
+export async function markMessagesRead(
+  clinicId: string,
+  keys: Array<{ remoteJid: string; id: string; fromMe: boolean; participant?: string }>,
+): Promise<void> {
+  const sock = activeSessions.get(clinicId)
+  if (!sock || keys.length === 0) return
+  try {
+    await sock.readMessages(keys)
+  } catch (err) {
+    console.warn(`[WA] No se pudo marcar como leído:`, (err as Error).message)
+  }
+}
+
+/** Limpia el flag de presencia inicializada cuando se cierra la sesión. */
+function resetPresenceFlag(clinicId: string): void {
+  presenceInitialized.delete(clinicId)
 }
 
 /**
@@ -356,6 +450,7 @@ export async function closeSession(clinicId: string): Promise<void> {
     await sock.logout()
     activeSessions.delete(clinicId)
     sessionStatus.set(clinicId, 'disconnected')
+    resetPresenceFlag(clinicId)
   }
 }
 
@@ -370,6 +465,7 @@ export function deleteSession(clinicId: string): void {
   activeSessions.delete(clinicId)
   pendingQRs.delete(clinicId)
   sessionStatus.delete(clinicId)
+  resetPresenceFlag(clinicId)
 }
 
 /**
