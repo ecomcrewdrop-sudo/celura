@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useClinic } from '@/hooks/useClinic'
+import { useAdmin } from '@/hooks/useAdmin'
 import clsx from 'clsx'
 import {
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
   UserRound,
   KeyRound,
   Crown,
+  ShieldCheck,
 } from 'lucide-react'
 import Avatar from './Avatar'
 import ProfileModal from './ProfileModal'
@@ -36,6 +38,7 @@ type Tab = 'profile' | 'account' | 'plan' | 'session'
 export default function Sidebar() {
   const { signOut, user } = useAuth()
   const { clinic, config } = useClinic()
+  const { isAdmin } = useAdmin()
   const [menuOpen, setMenuOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalTab, setModalTab] = useState<Tab>('profile')
@@ -217,8 +220,17 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        {/* Footer — botón mini para abrir perfil */}
-        <div className="border-t border-white/[0.06] px-3 py-3">
+        {/* Footer */}
+        <div className="border-t border-white/[0.06] px-3 py-3 space-y-1">
+          {isAdmin && (
+            <NavLink
+              to="/admin"
+              className="flex w-full items-center gap-3 rounded-xl border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-[12px] font-medium text-violet-300 transition-colors hover:bg-violet-500/20"
+            >
+              <ShieldCheck className="h-[15px] w-[15px]" />
+              Panel admin
+            </NavLink>
+          )}
           <button
             onClick={() => openModal('profile')}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[12px] text-zinc-500 transition-colors hover:bg-white/[0.04] hover:text-zinc-300"

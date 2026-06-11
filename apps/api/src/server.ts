@@ -16,6 +16,7 @@ import jwt from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
 
 import tenantPlugin from './plugins/tenant.js'
+import adminPlugin from './plugins/admin.js'
 import whatsappRoutes from './routes/whatsapp.js'
 import onboardingRoutes from './routes/onboarding.js'
 import clinicsRoutes from './routes/clinics.js'
@@ -23,6 +24,7 @@ import leadsRoutes from './routes/leads.js'
 import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
 import workflowsRoutes from './routes/workflows.js'
+import adminRoutes from './routes/admin.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { persistRawMessage } from './services/brain.js'
 import { enqueueIncoming } from './services/humanizer.js'
@@ -93,6 +95,9 @@ async function buildServer() {
   // ── Plugin de aislamiento por tenant ──────────────────────
   await fastify.register(tenantPlugin)
 
+  // ── Plugin admin (preHandler para /admin/*) ───────────────
+  await fastify.register(adminPlugin)
+
   // ── Health check (público) ────────────────────────────────
   fastify.get('/health', async () => ({
     status: 'ok',
@@ -108,6 +113,7 @@ async function buildServer() {
   await fastify.register(appointmentsRoutes, { prefix: '/api' })    // /api/appointments/*
   await fastify.register(whatsappRoutes, { prefix: '/api' })        // /api/whatsapp/*
   await fastify.register(workflowsRoutes, { prefix: '/api' })       // /api/workflows/*
+  await fastify.register(adminRoutes)                               // /admin/* (con preHandler de rol)
 
   // ── Sentry: instrumentación de Fastify (después de rutas) ──
   Sentry.setupFastifyErrorHandler(fastify)

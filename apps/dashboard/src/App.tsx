@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { ClinicProvider, useClinic } from '@/hooks/useClinic'
+import { AdminProvider } from '@/hooks/useAdmin'
 import Layout from '@/components/Layout'
 import Login from '@/pages/Login'
 import Onboarding from '@/pages/Onboarding'
@@ -11,6 +12,13 @@ import Conversations from '@/pages/Conversations'
 import WhatsAppPage from '@/pages/WhatsApp'
 import Workflows from '@/pages/Workflows'
 import Settings from '@/pages/Settings'
+import AdminLayout from '@/components/admin/AdminLayout'
+import AdminOverview from '@/pages/admin/AdminOverview'
+import AdminClinics from '@/pages/admin/AdminClinics'
+import AdminUsers from '@/pages/admin/AdminUsers'
+import AdminAnnouncements from '@/pages/admin/AdminAnnouncements'
+import AdminLogs from '@/pages/admin/AdminLogs'
+import AdminWASessions from '@/pages/admin/AdminWASessions'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -44,37 +52,58 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/onboarding"
-            element={
-              <AuthGuard>
-                <Onboarding />
-              </AuthGuard>
-            }
-          />
-          <Route
-            element={
-              <AuthGuard>
-                <ClinicProvider>
-                  <ClinicGuard>
-                    <Layout />
-                  </ClinicGuard>
-                </ClinicProvider>
-              </AuthGuard>
-            }
-          >
-            <Route index element={<DashboardHome />} />
-            <Route path="leads" element={<Leads />} />
-            <Route path="appointments" element={<Appointments />} />
-            <Route path="conversations" element={<Conversations />} />
-            <Route path="whatsapp" element={<WhatsAppPage />} />
-            <Route path="workflows" element={<Workflows />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <AdminProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/onboarding"
+              element={
+                <AuthGuard>
+                  <Onboarding />
+                </AuthGuard>
+              }
+            />
+
+            {/* Panel admin (rol verificado dentro de AdminLayout) */}
+            <Route
+              path="/admin"
+              element={
+                <AuthGuard>
+                  <AdminLayout />
+                </AuthGuard>
+              }
+            >
+              <Route index element={<AdminOverview />} />
+              <Route path="clinics" element={<AdminClinics />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="announcements" element={<AdminAnnouncements />} />
+              <Route path="wa-sessions" element={<AdminWASessions />} />
+              <Route path="logs" element={<AdminLogs />} />
+            </Route>
+
+            {/* Dashboard normal (clínica) */}
+            <Route
+              element={
+                <AuthGuard>
+                  <ClinicProvider>
+                    <ClinicGuard>
+                      <Layout />
+                    </ClinicGuard>
+                  </ClinicProvider>
+                </AuthGuard>
+              }
+            >
+              <Route index element={<DashboardHome />} />
+              <Route path="leads" element={<Leads />} />
+              <Route path="appointments" element={<Appointments />} />
+              <Route path="conversations" element={<Conversations />} />
+              <Route path="whatsapp" element={<WhatsAppPage />} />
+              <Route path="workflows" element={<Workflows />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AdminProvider>
       </AuthProvider>
     </BrowserRouter>
   )

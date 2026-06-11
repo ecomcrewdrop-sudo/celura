@@ -64,6 +64,23 @@ async function tenantPlugin(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'Token sin usuario' })
     }
 
+    // ── Rutas admin: verificamos JWT pero NO exigimos clínica ──
+    // Los admins son operadores internos de Celura: no tienen una clínica
+    // propia. El plugin `admin` (preHandler en /admin/*) valida que el
+    // usuario esté en la tabla `admins` y bloquea si no.
+    if (request.url.startsWith('/admin/') || request.url === '/admin') {
+      const token = request.headers.authorization?.split(' ')[1]
+      request.supabase = createClient(
+        process.env['SUPABASE_URL']!,
+        process.env['SUPABASE_ANON_KEY']!,
+        {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+          auth: { persistSession: false },
+        }
+      )
+      return
+    }
+
     // 2. Buscar clinic_id asociado a este usuario
     // (el usuario puede tener solo UNA clínica por ahora)
     const cacheKey = userId
