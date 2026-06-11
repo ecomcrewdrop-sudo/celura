@@ -19,15 +19,7 @@ import {
 } from 'lucide-react'
 import Avatar from './Avatar'
 import ProfileModal from './ProfileModal'
-
-function daysLeftLabel(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now()
-  if (Number.isNaN(ms)) return ''
-  const d = Math.ceil(ms / 86_400_000)
-  if (d <= 0) return 'Tu acceso ha terminado'
-  if (d === 1) return 'Termina mañana'
-  return `${d} días restantes`
-}
+import { trialLabel as daysLeftLabel } from '@/lib/trial'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },

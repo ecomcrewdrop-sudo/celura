@@ -26,6 +26,7 @@ import clsx from 'clsx'
 import { useAuth } from '@/hooks/useAuth'
 import { useClinic } from '@/hooks/useClinic'
 import { api } from '@/lib/api'
+import { trialDaysLeft, trialTotalDays } from '@/lib/trial'
 import Avatar from './Avatar'
 
 interface Props {
@@ -53,13 +54,6 @@ const COUNTRY_OPTIONS = [
   { code: 'ES', name: 'España' },
   { code: 'US', name: 'Estados Unidos' },
 ]
-
-function daysLeft(iso: string | null): number | null {
-  if (!iso) return null
-  const ms = new Date(iso).getTime() - Date.now()
-  if (Number.isNaN(ms)) return null
-  return Math.max(0, Math.ceil(ms / 86_400_000))
-}
 
 function planMeta(plan: string): { label: string; tint: string; description: string } {
   switch (plan) {
@@ -148,7 +142,13 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
   }, [fullName, clinic?.name, user?.email])
 
   const meta = useMemo(() => planMeta(clinic?.plan ?? 'trial'), [clinic?.plan])
-  const trialDays = useMemo(() => daysLeft(clinic?.trial_ends_at ?? null), [clinic?.trial_ends_at])
+  const trialDays = useMemo(() => trialDaysLeft(clinic?.trial_ends_at ?? null), [clinic?.trial_ends_at])
+  const trialTotal = useMemo(
+    () => trialTotalDays(clinic?.beta_started_at ?? null, clinic?.trial_ends_at ?? null, 14),
+    [clinic?.beta_started_at, clinic?.trial_ends_at],
+  )
+  const trialUsed = trialDays !== null ? Math.max(0, trialTotal - trialDays) : 0
+  const trialProgressPct = trialDays !== null ? Math.min(100, Math.round((trialUsed / trialTotal) * 100)) : 0
 
   // Detectar cambios dirty — comparamos siempre TRIMEADO contra el snapshot original
   const profileDirty =
@@ -530,18 +530,23 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
 
                   {(clinic?.plan === 'trial' || clinic?.is_beta) && trialDays !== null && (
                     <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                      <div className="flex items-center gap-2 text-xs text-amber-200">
-                        <CalendarClock className="h-3.5 w-3.5" />
-                        {trialDays === 0
-                          ? 'Tu prueba termina hoy.'
-                          : trialDays === 1
-                          ? 'Tu prueba termina mañana.'
-                          : `Te quedan ${trialDays} días de prueba.`}
+                      <div className="flex items-center justify-between gap-2 text-xs text-amber-200">
+                        <span className="flex items-center gap-2">
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          {trialDays === 0
+                            ? 'Tu prueba termina hoy.'
+                            : trialDays === 1
+                            ? 'Tu prueba termina mañana.'
+                            : `Te quedan ${trialDays} días de prueba.`}
+                        </span>
+                        <span className="text-[10px] text-amber-300/70">
+                          {trialUsed}/{trialTotal} usados
+                        </span>
                       </div>
                       <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.06]">
                         <div
                           className="h-full bg-gradient-to-r from-amber-400 to-lime-400 transition-all"
-                          style={{ width: `${Math.min(100, (trialDays / 14) * 100)}%` }}
+                          style={{ width: `${trialProgressPct}%` }}
                         />
                       </div>
                     </div>
