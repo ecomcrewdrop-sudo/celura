@@ -9,6 +9,9 @@ interface AuthCtx {
   signIn: (email: string, password: string) => Promise<string | null>
   signUp: (email: string, password: string, fullName?: string) => Promise<string | null>
   signOut: () => Promise<void>
+  updateProfile: (input: { full_name?: string; avatar_url?: string | null }) => Promise<string | null>
+  updateEmail: (email: string) => Promise<string | null>
+  updatePassword: (password: string) => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthCtx | null>(null)
@@ -55,9 +58,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null)
   }
 
+  const updateProfile = async (input: { full_name?: string; avatar_url?: string | null }) => {
+    const data: Record<string, unknown> = {}
+    if (input.full_name !== undefined) data['full_name'] = input.full_name
+    if (input.avatar_url !== undefined) data['avatar_url'] = input.avatar_url
+    if (Object.keys(data).length === 0) return null
+    const { data: res, error } = await supabase.auth.updateUser({ data })
+    if (error) return error.message
+    if (res.user) setSession(s => (s ? { ...s, user: res.user } : s))
+    return null
+  }
+
+  const updateEmail = async (email: string) => {
+    const { error } = await supabase.auth.updateUser({ email })
+    if (error) return error.message
+    return null
+  }
+
+  const updatePassword = async (password: string) => {
+    if (password.length < 8) return 'La contraseña debe tener al menos 8 caracteres'
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) return error.message
+    return null
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut }}
+      value={{
+        user: session?.user ?? null,
+        session,
+        loading,
+        signIn,
+        signUp,
+        signOut,
+        updateProfile,
+        updateEmail,
+        updatePassword,
+      }}
     >
       {children}
     </AuthContext.Provider>

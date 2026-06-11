@@ -1,6 +1,7 @@
 // ============================================================
 //  CELURA · Rutas de clínica
 //  GET   /clinics/me           → datos de la clínica + config (keys enmascaradas)
+//  PATCH /clinics/me           → actualiza datos básicos de la clínica (perfil)
 //  PATCH /clinics/me/config    → actualiza configuración (encripta keys si vienen)
 // ============================================================
 
@@ -9,6 +10,14 @@ import { z } from 'zod'
 import { encrypt, decrypt, maskApiKey } from '../services/crypto.js'
 
 const scheduleStringRegex = /^(\d{2}:\d{2}-\d{2}:\d{2})$/
+
+// ── Perfil de la clínica (datos editables desde el menú de usuario) ──
+const updateClinicSchema = z.object({
+  name: z.string().min(2).max(80).optional(),
+  phone: z.string().min(6).max(30).nullable().optional(),
+  city: z.string().min(1).max(80).nullable().optional(),
+  country: z.string().min(2).max(3).optional(),
+})
 
 const updateConfigSchema = z.object({
   assistant_name: z.string().min(1).max(60).optional(),
@@ -72,6 +81,43 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
         has_openai_key: !!openai_key_enc,
         has_elevenlabs_key: !!elevenlabs_key_enc,
       },
+    })
+  })
+
+  // ── PATCH /clinics/me ───────────────────────────────────────
+  // Actualiza datos del perfil de la clínica (nombre, ciudad, teléfono, país).
+  fastify.patch('/clinics/me', async (req: FastifyRequest, reply: FastifyReply) => {
+    const parsed = updateClinicSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Datos inválidos',
+        issues: parsed.error.issues,
+      })
+    }
+
+    const updates = parsed.data
+    if (Object.keys(updates).length === 0) {
+      return reply.status(400).send({ error: 'Nada que actualizar' })
+    }
+
+    const { data, error } = await req.supabase
+      .from('clinics')
+      .update(updates)
+      .eq('id', req.tenant.clinic_id)
+      .select()
+      .single()
+
+    if (error || !data) {
+      req.log.error({ err: error }, 'Error actualizando clínica')
+      return reply.status(500).send({ error: 'No se pudo actualizar el perfil' })
+    }
+
+    fastify.invalidateTenantCache(req.tenant.owner_id)
+
+    return reply.send({
+      success: true,
+      message: 'Perfil actualizado',
+      clinic: data,
     })
   })
 
