@@ -14,6 +14,7 @@ import type { ClinicConfig } from '../types/tenant.js'
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514'
 const OPENAI_MODEL = 'gpt-4o-2024-11-20'
 const OPENAI_VISION_MODEL = 'gpt-4o-2024-11-20'
+const OPENAI_TRANSCRIBE_MODEL = 'whisper-1'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -60,6 +61,18 @@ export class AIClient {
         )
       }
       this.openai = new OpenAI({ apiKey: decrypt(config.openai_key_enc) })
+    }
+
+    // Cargamos OpenAI SIEMPRE que haya key, aunque el proveedor primario
+    // sea Claude. Whisper (transcripción de notas de voz) es OpenAI-only,
+    // así que el doctor que use Claude para chat puede igual configurar una
+    // OpenAI key solo para audios. Si no hay, transcribe() lanzará error.
+    if (!this.openai && config.openai_key_enc) {
+      try {
+        this.openai = new OpenAI({ apiKey: decrypt(config.openai_key_enc) })
+      } catch {
+        /* clave inválida: ignoramos, transcribe() reportará el problema */
+      }
     }
   }
 
@@ -177,5 +190,62 @@ export class AIClient {
     }
 
     throw new Error(`Proveedor de IA no inicializado: ${this.provider}`)
+  }
+
+  /**
+   * ¿Hay capacidad de transcripción disponible? (necesita OpenAI inicializado).
+   * Útil para que el brain decida si vale la pena descargar el audio.
+   */
+  get canTranscribe(): boolean {
+    return this.openai !== null
+  }
+
+  /**
+   * Transcribe una nota de voz a texto vía Whisper. WhatsApp envía audios
+   * como audio/ogg (codec opus); Whisper acepta el formato directo.
+   *
+   * Devuelve el texto en el idioma original detectado (Whisper
+   * autodetecta — el paciente que escribe en español dictará en español).
+   *
+   * Si no hay OpenAI key en la clínica, lanza Error claro para que el
+   * caller decida si escalar a humano o ignorar.
+   */
+  async transcribe(opts: {
+    audio: { base64: string; mime: string }
+    /** Pista de idioma opcional (ej. 'es', 'en'). Whisper lo autodetecta igual. */
+    language?: string
+  }): Promise<{ text: string; durationSec: number | null }> {
+    if (!this.openai) {
+      throw new Error(
+        'Para transcribir notas de voz necesitas configurar una API key de OpenAI ' +
+        '(Whisper). Ve a Configuración → Claves de API.',
+      )
+    }
+
+    // El SDK de OpenAI acepta File/Blob. Construimos uno a partir del base64.
+    const cleanMime = opts.audio.mime.split(';')[0]?.trim() ?? 'audio/ogg'
+    const buffer = Buffer.from(opts.audio.base64, 'base64')
+    // Nombre con extensión coherente: Whisper usa la extensión para hint del codec.
+    const ext = cleanMime.includes('mpeg') || cleanMime.includes('mp3')
+      ? 'mp3'
+      : cleanMime.includes('wav')
+      ? 'wav'
+      : cleanMime.includes('m4a') || cleanMime.includes('mp4')
+      ? 'm4a'
+      : 'ogg'
+
+    const file = new File([new Uint8Array(buffer)], `audio.${ext}`, { type: cleanMime })
+
+    const res = await this.openai.audio.transcriptions.create({
+      model: OPENAI_TRANSCRIBE_MODEL,
+      file,
+      ...(opts.language ? { language: opts.language } : {}),
+      response_format: 'verbose_json',
+    })
+
+    // verbose_json incluye 'duration'. El SDK lo tipa como any en algunas versiones.
+    const text = (res as { text?: string }).text?.trim() ?? ''
+    const duration = (res as { duration?: number }).duration ?? null
+    return { text, durationSec: duration }
   }
 }

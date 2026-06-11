@@ -291,14 +291,14 @@ async function buildWAMessage(
       : undefined,
   }
 
-  // Solo descargamos la imagen para mensajes en vivo entrantes — el
-  // histórico se queda como referencia (no gastamos vision en cada foto vieja).
-  if (
-    msgType === 'image' &&
+  // Descargamos imagen O audio para mensajes en vivo entrantes.
+  // El histórico se queda como referencia (no re-procesamos años de media).
+  const shouldDownloadMedia =
     direction === 'incoming' &&
     forcedDirection === null &&
-    msg.message?.imageMessage
-  ) {
+    (msgType === 'image' || msgType === 'audio')
+
+  if (shouldDownloadMedia) {
     try {
       const buffer = (await downloadMediaMessage(
         msg,
@@ -306,10 +306,19 @@ async function buildWAMessage(
         {},
         { logger, reuploadRequest: sock.updateMediaMessage },
       )) as Buffer
-      waMsg.media_mimetype = msg.message.imageMessage.mimetype ?? 'image/jpeg'
+      if (msgType === 'image' && msg.message?.imageMessage) {
+        waMsg.media_mimetype = msg.message.imageMessage.mimetype ?? 'image/jpeg'
+      } else if (msgType === 'audio' && msg.message?.audioMessage) {
+        // Las notas de voz de WhatsApp vienen como audio/ogg; codec=opus.
+        // Whisper lo acepta directo.
+        waMsg.media_mimetype = msg.message.audioMessage.mimetype ?? 'audio/ogg'
+      }
       waMsg.media_data = buffer.toString('base64')
     } catch (err) {
-      console.error(`[WA] Error descargando imagen de ${waMsg.from_phone}:`, err)
+      console.error(
+        `[WA] Error descargando ${msgType} de ${waMsg.from_phone}:`,
+        (err as Error).message,
+      )
     }
   }
 

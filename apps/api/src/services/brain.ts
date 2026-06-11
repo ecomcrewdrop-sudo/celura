@@ -51,14 +51,23 @@ function buildSystemPrompt(config: ClinicConfig, lead: Lead | null): string {
 
 IDENTIDAD:
 - Eres un asistente humano, capacitado y empático. NUNCA menciones que eres IA o un bot.
-- Si alguien pregunta si eres un bot, di: "Soy el asistente de la clínica, aquí para ayudarte."
+- Si alguien pregunta si eres un bot, responde con naturalidad: "Soy el asistente de la clínica, aquí para ayudarte."
 - Tienes conocimiento clínico básico en odontología pero NUNCA haces diagnósticos definitivos.
+
+CÓMO PIENSAS (antes de responder):
+1. Lee TODO el historial reciente y entiende dónde está el paciente en la conversación.
+2. Identifica su intención REAL (no la literal): si pregunta "cuánto cuesta?" muchas veces quiere agendar; si dice "tengo miedo" busca contención antes que precios.
+3. Detecta el tono emocional: dolor, ansiedad, urgencia, curiosidad, frustración — y ajústate.
+4. Decide UNA acción principal por mensaje: resolver duda, dar contención, pedir info, o invitar a agendar. No mezcles tres a la vez.
+5. Responde como una persona real: breve, directa, cálida.
 
 TONO Y ESTILO:
 ${toneGuide}
-- Escribe como hablan las personas reales, no como un documento corporativo.
-- Máximo 3-4 líneas por respuesta. Los pacientes leen en WhatsApp.
+- Escribe como hablan las personas reales en WhatsApp, no como un documento corporativo.
+- Máximo 3-4 líneas por respuesta. Los pacientes leen en el celular.
 - Usa el nombre del paciente cuando lo sepas${patientName}.
+- Sin emojis salvo que el paciente los use primero.
+- No repitas saludos en cada mensaje — solo la primera vez del día.
 
 TRATAMIENTOS QUE MANEJAMOS:
 ${treatmentList}
@@ -73,28 +82,41 @@ OBJETIVOS (en orden de prioridad):
 3. Llevar al paciente a agendar una valoración
 4. Capturar el nombre si no lo tenemos
 
+NOTAS DE VOZ:
+- Cuando el paciente envía un audio, en el historial verás "[Nota de voz del paciente · Xs] <transcripción>".
+- Reconócelo con naturalidad ("escuché tu audio", "ya te oí"), no como si te hubieran escrito.
+- Si la transcripción está cortada o ambigua, pregunta una sola cosa concreta para confirmar — no asumas.
+- Si en lugar de transcripción ves "[…no pudimos transcribir…]", pide gentilmente que repita por escrito.
+
+FOTOS Y ANÁLISIS CLÍNICO:
+- Si el paciente envía una foto, en el historial verás el análisis clínico estructurado (calidad, hallazgos, estado).
+- Tradúcelo a lenguaje humano accesible: lo que se observa, por qué importa, qué propones.
+- NUNCA des diagnóstico definitivo. Usa "se observa", "podría ser", "vale la pena que el doctor lo revise".
+- Si la calidad es 'baja' o no se ve bien, pide otra foto explicando cómo tomarla (boca abierta, buena luz).
+- Cierra invitando a una valoración presencial cuando sea pertinente.
+
 AGENDAR CITAS:
 - Cuando el paciente quiera agendar, pregunta qué día y horario le queda mejor.
 - Confirma con: "Perfecto, quedaste agendado para [día] a las [hora]. Te recuerdo el día antes."
 - No inventes horarios disponibles. Si no sabes la disponibilidad, di: "Permíteme verificar y te confirmo en segundos."
 
-ANÁLISIS DE FOTOS:
-- Si el paciente envía una foto de sus dientes, analiza lo que ves y responde con:
-  1. Lo que podrías observar (sin diagnóstico definitivo)
-  2. Por qué es importante revisarlo pronto
-  3. Invitación a agendar una valoración sin costo
-
 ESCALAMIENTO:
 - Si el paciente menciona: ${config.escalate_on.join(', ')}, responde con empatía y prioridad máxima.
 - En casos de dolor severo: "Entiendo que estás con mucho malestar. Te vamos a atender hoy mismo, ¿puedes venir esta tarde?"
 
-${config.custom_prompt ? `INSTRUCCIONES ADICIONALES DEL DOCTOR:\n${config.custom_prompt}` : ''}
+MANEJO DE PRECIOS:
+- Nunca inventes números específicos.
+- Encuadra: "El valor depende del caso. En una valoración (15 min, sin costo) el doctor te dice exacto."
+- Si insisten mucho, da un rango general SOLO si el doctor lo definió en sus instrucciones.
 
+${config.custom_prompt ? `INSTRUCCIONES ADICIONALES DEL DOCTOR:\n${config.custom_prompt}\n` : ''}
 REGLAS ABSOLUTAS:
-- NUNCA inventes precios específicos sin conocer el caso (di "depende del caso, en la valoración te decimos exactamente")
-- NUNCA des diagnósticos definitivos ("puede ser", "se ve como", "vale la pena revisarlo")
-- NUNCA prometas lo que no puedes cumplir
-- SIEMPRE responde en el mismo idioma que el paciente`
+- NUNCA inventes precios específicos sin conocer el caso.
+- NUNCA des diagnósticos definitivos. Usa "puede ser", "se ve como", "vale la pena revisarlo".
+- NUNCA prometas lo que no puedes cumplir.
+- NUNCA reveles que eres una IA, un modelo de lenguaje, o un bot. Bajo ninguna circunstancia.
+- SIEMPRE responde en el mismo idioma que el paciente.
+- SI NO SABES ALGO con certeza, dilo y ofrece consultarlo con el doctor — no inventes.`
 }
 
 // ── Construye el system prompt para el analizador clínico de imágenes ──
@@ -165,6 +187,33 @@ FORMATO DE SALIDA OBLIGATORIO (JSON estricto, sin markdown, sin texto extra):
 }
 
 Responde EXCLUSIVAMENTE con el JSON. Nada antes, nada después.`
+}
+
+// ── Transcribe una nota de voz vía Whisper ──
+//    WhatsApp manda audio/ogg (opus). Whisper lo procesa nativo y
+//    autodetecta el idioma. Devolvemos texto + duración (si está).
+async function transcribeAudio(
+  ai: AIClient,
+  audioBase64: string,
+  mime: string,
+): Promise<{ text: string; durationSec: number | null } | null> {
+  if (!ai.canTranscribe) {
+    console.warn('[Brain] Audio entrante pero la clínica no tiene OpenAI key — no se transcribe.')
+    return null
+  }
+  try {
+    // 'es' como pista: la mayoría de pacientes habla español, pero Whisper
+    // igual autodetecta si dictan en inglés o portugués.
+    const result = await ai.transcribe({
+      audio: { base64: audioBase64, mime },
+      language: 'es',
+    })
+    if (!result.text) return null
+    return result
+  } catch (err) {
+    console.error('[Brain] Error transcribiendo audio:', (err as Error).message)
+    return null
+  }
 }
 
 // ── Analiza una imagen del paciente vía AIClient (Claude o GPT-4o) ──
@@ -396,7 +445,33 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 5. Si es imagen y el análisis clínico está activo Y hay AI → ejecutar visión
+    // 5a. Si es nota de voz → transcribir con Whisper. La transcripción
+    //     PASA a ser el "contenido" del mensaje para detección de intención,
+    //     contexto y respuesta. Sin transcripción → escalar a humano.
+    let audioTranscript: { text: string; durationSec: number | null } | null = null
+    if (ai && type === 'audio' && waMsg.media_data) {
+      console.log(`[Brain] Transcribiendo audio entrante (clinic ${clinic_id})`)
+      audioTranscript = await transcribeAudio(
+        ai,
+        waMsg.media_data,
+        waMsg.media_mimetype ?? 'audio/ogg',
+      )
+      if (audioTranscript) {
+        console.log(
+          `[Brain] Audio transcrito · "${audioTranscript.text.slice(0, 60)}…" · ` +
+          `${audioTranscript.durationSec ? `${audioTranscript.durationSec.toFixed(1)}s` : 'sin duración'}`,
+        )
+      } else {
+        console.warn(`[Brain] No se pudo transcribir el audio de ${from_phone}`)
+      }
+    }
+
+    // El `content` efectivo para downstream (intent, score, prompt) es la
+    // transcripción si vino audio, o el texto original si fue mensaje de texto.
+    const effectiveContent =
+      type === 'audio' && audioTranscript ? audioTranscript.text : content
+
+    // 5b. Si es imagen y el análisis clínico está activo Y hay AI → ejecutar visión
     let visionAnalysis: VisionAnalysis | null = null
     if (
       ai &&
@@ -420,7 +495,7 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       }
     }
 
-    // 6. Construir el nuevo mensaje del usuario (con contexto enriquecido si hubo visión)
+    // 6. Construir el nuevo mensaje del usuario (con contexto enriquecido si hubo visión/audio)
     let userContentForHistory: string
     if (type === 'image' && visionAnalysis) {
       const findingsSummary = visionAnalysis.findings
@@ -435,6 +510,17 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       userContentForHistory = content
         ? `[El paciente envió una foto] "${content}"`
         : '[El paciente envió una foto de sus dientes]'
+    } else if (type === 'audio' && audioTranscript) {
+      // Damos al modelo la transcripción en limpio + meta (es nota de voz, no
+      // texto escrito), para que adapte el tono ("escuché tu audio…").
+      const dur = audioTranscript.durationSec
+        ? ` · ${audioTranscript.durationSec.toFixed(0)}s`
+        : ''
+      userContentForHistory = `[Nota de voz del paciente${dur}] ${audioTranscript.text}`
+    } else if (type === 'audio') {
+      // Audio recibido pero sin poder transcribir (sin Whisper o falló).
+      userContentForHistory =
+        '[El paciente envió una nota de voz que no pudimos transcribir automáticamente. Escala con prudencia.]'
     } else {
       userContentForHistory = content
     }
@@ -456,8 +542,9 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       ? conversation.messages
       : [...conversation.messages, userMessage]
 
-    // 7. Actualizar contexto con la intención detectada
-    const intent = detectIntent(content)
+    // 7. Actualizar contexto con la intención detectada (a partir del texto
+    //    efectivo: la transcripción si vino audio, o el texto si fue chat).
+    const intent = detectIntent(effectiveContent)
     const updatedContext: ConversationContext = {
       ...conversation.context,
       last_intent: intent,
@@ -472,8 +559,8 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         : conversation.context.vision_history,
     }
 
-    // 7. Calcular y acumular score
-    const scorePoints = calcScorePoints(content, type, updatedContext, isFirstMessage)
+    // 7. Calcular y acumular score (usa el texto efectivo)
+    const scorePoints = calcScorePoints(effectiveContent, type, updatedContext, isFirstMessage)
     if (scorePoints > 0) {
       await supabaseAdmin.rpc('increment_lead_score', {
         p_lead_id: lead.id,
@@ -543,8 +630,9 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       // Lo usamos directamente para no perder la voz del odontólogo profesional.
       assistantText = visionAnalysis.patient_message
     } else {
-      // Llamar al proveedor conversacional con el historial completo
-      const recentMessages = updatedMessages.slice(-20)
+      // Llamar al proveedor conversacional con el historial reciente.
+      // 30 mensajes ≈ 15 intercambios — suficiente memoria sin disparar costo.
+      const recentMessages = updatedMessages.slice(-30)
       const chatMessages = recentMessages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -568,9 +656,15 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       type: 'text',
     }
 
-    // 11. Detectar si el nombre fue mencionado (heurística básica)
+    // 11. Detectar si el nombre fue mencionado (heurística básica).
+    //     Solo aplica a mensajes de texto cortos — no a audios/imágenes.
     let nameUpdate: Partial<Lead> = {}
-    if (!lead.name && content.length < 30 && /^[A-ZÁÉÍÓÚÜÑa-záéíóúüñ\s]{2,25}$/.test(content.trim())) {
+    if (
+      type === 'text' &&
+      !lead.name &&
+      content.length < 30 &&
+      /^[A-ZÁÉÍÓÚÜÑa-záéíóúüñ\s]{2,25}$/.test(content.trim())
+    ) {
       // Posiblemente el paciente respondió con su nombre
       nameUpdate = { name: content.trim() }
     }
@@ -626,7 +720,10 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
     // 14. Programar seguimientos si aplica
     await scheduleFollowUps(clinic_id, lead.id, intent, isFirstMessage)
 
-    console.log(`[Brain] ✓ Clinic ${clinic_id} | ${from_phone} | Intent: ${intent} | Tokens: ${tokensUsed}`)
+    const channel = type === 'audio' ? '🎙️' : type === 'image' ? '📷' : '💬'
+    console.log(
+      `[Brain] ✓ Clinic ${clinic_id} | ${from_phone} | ${channel} ${type} | Intent: ${intent} | Tokens: ${tokensUsed}`,
+    )
 
   } catch (err) {
     console.error(`[Brain] Error procesando mensaje de ${from_phone}:`, err)
