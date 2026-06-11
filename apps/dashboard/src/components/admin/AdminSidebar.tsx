@@ -9,6 +9,9 @@ import {
   Smartphone,
   ChevronLeft,
   ShieldCheck,
+  Ticket,
+  AlertTriangle,
+  LineChart,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -18,6 +21,9 @@ const links = [
   { to: '/admin/clinics', label: 'Clínicas', icon: Building2 },
   { to: '/admin/users', label: 'Usuarios', icon: Users },
   { to: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
+  { to: '/admin/promos', label: 'Códigos promo', icon: Ticket },
+  { to: '/admin/cohorts', label: 'Cohortes', icon: LineChart },
+  { to: '/admin/errors', label: 'Errores', icon: AlertTriangle },
   { to: '/admin/wa-sessions', label: 'WhatsApp', icon: Smartphone },
   { to: '/admin/logs', label: 'Auditoría', icon: ScrollText },
 ]

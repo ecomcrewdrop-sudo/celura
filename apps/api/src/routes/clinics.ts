@@ -168,4 +168,37 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
       message: 'Configuración actualizada',
     })
   })
+
+  // ── POST /clinics/me/redeem-promo ──────────────────────────
+  // El doctor ingresa un código (cupón, extensión de trial, código de
+  // afiliado). Se valida y aplica vía RPC atómica en Supabase.
+  fastify.post(
+    '/clinics/me/redeem-promo',
+    async (req: FastifyRequest<{ Body: { code?: string } }>, reply: FastifyReply) => {
+      const code = (req.body?.code ?? '').trim()
+      if (code.length < 3 || code.length > 50) {
+        return reply.status(400).send({ error: 'Código inválido' })
+      }
+
+      const { data, error } = await req.supabase.rpc('redeem_promo_code', {
+        p_code: code,
+        p_clinic_id: req.tenant.clinic_id,
+      })
+
+      if (error) {
+        req.log.warn({ err: error.message }, 'Error al redimir promo')
+        return reply.status(400).send({ error: 'No se pudo procesar el código' })
+      }
+
+      const result = data as { ok: boolean; error?: string; code?: string; result?: unknown }
+      if (!result?.ok) {
+        return reply.status(400).send({ error: result?.error ?? 'Código no válido' })
+      }
+
+      // Invalidar cache del tenant si la promo cambió el plan o el trial
+      fastify.invalidateTenantCache(req.tenant.owner_id)
+
+      return reply.send(result)
+    },
+  )
 }

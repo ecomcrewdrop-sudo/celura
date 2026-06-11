@@ -19,6 +19,9 @@ import AdminUsers from '@/pages/admin/AdminUsers'
 import AdminAnnouncements from '@/pages/admin/AdminAnnouncements'
 import AdminLogs from '@/pages/admin/AdminLogs'
 import AdminWASessions from '@/pages/admin/AdminWASessions'
+import AdminPromos from '@/pages/admin/AdminPromos'
+import AdminErrors from '@/pages/admin/AdminErrors'
+import AdminCohorts from '@/pages/admin/AdminCohorts'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -77,6 +80,9 @@ export default function App() {
               <Route path="clinics" element={<AdminClinics />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="announcements" element={<AdminAnnouncements />} />
+              <Route path="promos" element={<AdminPromos />} />
+              <Route path="cohorts" element={<AdminCohorts />} />
+              <Route path="errors" element={<AdminErrors />} />
               <Route path="wa-sessions" element={<AdminWASessions />} />
               <Route path="logs" element={<AdminLogs />} />
             </Route>

@@ -68,6 +68,24 @@ const announcementCreateSchema = z.object({
 
 const announcementPatchSchema = announcementCreateSchema.partial()
 
+const promoCreateSchema = z.object({
+  code: z.string().min(3).max(50).regex(/^[A-Za-z0-9_\-]+$/, 'Solo letras, números, guiones y guiones bajos'),
+  kind: z.enum(['discount_pct', 'discount_amount', 'trial_extend', 'plan_upgrade']),
+  value: z.number().min(0).max(100000),
+  currency: z.string().length(3).optional(),
+  target_plan: z.enum(['esencial', 'pro', 'clinica']).nullable().optional(),
+  applies_to_plans: z.array(z.enum(['trial', 'esencial', 'pro', 'clinica'])).nullable().optional(),
+  max_redemptions: z.number().int().positive().nullable().optional(),
+  starts_at: z.string().datetime().nullable().optional(),
+  ends_at: z.string().datetime().nullable().optional(),
+  is_active: z.boolean().default(true),
+  affiliate_user_id: z.string().uuid().nullable().optional(),
+  affiliate_commission_pct: z.number().min(0).max(100).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+})
+
+const promoPatchSchema = promoCreateSchema.partial()
+
 export default async function adminRoutes(fastify: FastifyInstance) {
   // ────────────────────────────────────────────────────────
   //  GET /admin/me — identidad del admin actual
@@ -606,4 +624,259 @@ export default async function adminRoutes(fastify: FastifyInstance) {
 
     return { items, total: items.length }
   })
+
+  // ════════════════════════════════════════════════════════
+  //  PROMO CODES · /admin/promo-codes
+  // ════════════════════════════════════════════════════════
+
+  // GET /admin/promo-codes — listado con stats de redenciones
+  fastify.get<{ Querystring: { q?: string; active?: string } }>(
+    '/admin/promo-codes',
+    async (req) => {
+      let q = supabaseAdmin.from('promo_codes').select('*').order('created_at', { ascending: false })
+      if (req.query.q) {
+        q = q.ilike('code', `%${req.query.q.trim()}%`)
+      }
+      if (req.query.active === 'true') q = q.eq('is_active', true)
+      if (req.query.active === 'false') q = q.eq('is_active', false)
+      const { data, error } = await q
+      if (error) throw error
+      return { items: data ?? [], total: data?.length ?? 0 }
+    },
+  )
+
+  // GET /admin/promo-codes/:id — detalle + redenciones recientes
+  fastify.get<{ Params: { id: string } }>('/admin/promo-codes/:id', async (req, reply) => {
+    const [promo, redemptions] = await Promise.all([
+      supabaseAdmin.from('promo_codes').select('*').eq('id', req.params.id).maybeSingle(),
+      supabaseAdmin
+        .from('promo_redemptions')
+        .select('*, clinics!inner(id, name, slug)')
+        .eq('promo_code_id', req.params.id)
+        .order('redeemed_at', { ascending: false })
+        .limit(100),
+    ])
+    if (!promo.data) return reply.status(404).send({ error: 'Código no encontrado' })
+
+    return {
+      promo: promo.data,
+      redemptions: redemptions.data ?? [],
+    }
+  })
+
+  // POST /admin/promo-codes — crear
+  fastify.post<{ Body: unknown }>('/admin/promo-codes', async (req, reply) => {
+    const parsed = promoCreateSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message })
+    }
+    const { data, error } = await supabaseAdmin
+      .from('promo_codes')
+      .insert({ ...parsed.data, code: parsed.data.code.toUpperCase(), created_by: req.admin!.user_id })
+      .select()
+      .single()
+    if (error) {
+      if (error.code === '23505') return reply.status(409).send({ error: 'Ese código ya existe' })
+      return reply.status(400).send({ error: error.message })
+    }
+    logFromRequest(req, 'promo.create', { type: 'promo_code', id: (data as { id: string }).id }, parsed.data)
+    return data
+  })
+
+  // PATCH /admin/promo-codes/:id — editar
+  fastify.patch<{ Params: { id: string }; Body: unknown }>(
+    '/admin/promo-codes/:id',
+    async (req, reply) => {
+      const parsed = promoPatchSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message })
+      }
+      const payload: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() }
+      if (typeof parsed.data.code === 'string') payload['code'] = parsed.data.code.toUpperCase()
+      const { data, error } = await supabaseAdmin
+        .from('promo_codes')
+        .update(payload)
+        .eq('id', req.params.id)
+        .select()
+        .single()
+      if (error) return reply.status(400).send({ error: error.message })
+      logFromRequest(req, 'promo.patch', { type: 'promo_code', id: req.params.id }, parsed.data)
+      return data
+    },
+  )
+
+  // DELETE /admin/promo-codes/:id — eliminar (cascade redemptions)
+  fastify.delete<{ Params: { id: string } }>('/admin/promo-codes/:id', async (req, reply) => {
+    const { error } = await supabaseAdmin.from('promo_codes').delete().eq('id', req.params.id)
+    if (error) return reply.status(400).send({ error: error.message })
+    logFromRequest(req, 'promo.delete', { type: 'promo_code', id: req.params.id })
+    return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════
+  //  ERROR EVENTS · /admin/errors
+  // ════════════════════════════════════════════════════════
+
+  // GET /admin/errors — feed agrupado por fingerprint
+  fastify.get<{
+    Querystring: {
+      source?: string
+      severity?: string
+      resolved?: string
+      clinic_id?: string
+      limit?: string
+      offset?: string
+    }
+  }>('/admin/errors', async (req) => {
+    const limit = Math.min(parseInt(req.query.limit ?? '100', 10) || 100, 500)
+    const offset = parseInt(req.query.offset ?? '0', 10) || 0
+
+    let q = supabaseAdmin.from('error_events').select('*', { count: 'exact' })
+    if (req.query.source) q = q.eq('source', req.query.source)
+    if (req.query.severity) q = q.eq('severity', req.query.severity)
+    if (req.query.clinic_id) q = q.eq('clinic_id', req.query.clinic_id)
+    if (req.query.resolved === 'true') q = q.not('resolved_at', 'is', null)
+    if (req.query.resolved === 'false') q = q.is('resolved_at', null)
+    q = q.order('last_seen_at', { ascending: false }).range(offset, offset + limit - 1)
+
+    const { data, count, error } = await q
+    if (error) throw error
+    return { items: data ?? [], total: count ?? 0, limit, offset }
+  })
+
+  // GET /admin/errors/stats — para el dashboard de salud
+  fastify.get('/admin/errors/stats', async () => {
+    const since24h = new Date(Date.now() - 24 * 3600_000).toISOString()
+    const since1h = new Date(Date.now() - 3600_000).toISOString()
+    const [unresolved, critical24h, last1h, bySource] = await Promise.all([
+      supabaseAdmin.from('error_events').select('id', { count: 'exact', head: true }).is('resolved_at', null),
+      supabaseAdmin.from('error_events').select('id', { count: 'exact', head: true })
+        .eq('severity', 'critical').gte('last_seen_at', since24h),
+      supabaseAdmin.from('error_events').select('id', { count: 'exact', head: true }).gte('last_seen_at', since1h),
+      supabaseAdmin.from('error_events').select('source').gte('last_seen_at', since24h),
+    ])
+
+    const sources: Record<string, number> = {}
+    for (const row of (bySource.data ?? []) as { source: string }[]) {
+      sources[row.source] = (sources[row.source] ?? 0) + 1
+    }
+
+    return {
+      unresolved: unresolved.count ?? 0,
+      critical_24h: critical24h.count ?? 0,
+      last_1h: last1h.count ?? 0,
+      by_source: sources,
+    }
+  })
+
+  // POST /admin/errors/:id/resolve — marcar como resuelto
+  fastify.post<{ Params: { id: string } }>('/admin/errors/:id/resolve', async (req, reply) => {
+    const { error } = await supabaseAdmin
+      .from('error_events')
+      .update({
+        resolved_at: new Date().toISOString(),
+        resolved_by: req.admin!.user_id,
+      })
+      .eq('id', req.params.id)
+    if (error) return reply.status(400).send({ error: error.message })
+    logFromRequest(req, 'error.resolve', { type: 'error_event', id: req.params.id })
+    return { ok: true }
+  })
+
+  // POST /admin/errors/:id/reopen — reabrir error
+  fastify.post<{ Params: { id: string } }>('/admin/errors/:id/reopen', async (req, reply) => {
+    const { error } = await supabaseAdmin
+      .from('error_events')
+      .update({ resolved_at: null, resolved_by: null })
+      .eq('id', req.params.id)
+    if (error) return reply.status(400).send({ error: error.message })
+    logFromRequest(req, 'error.reopen', { type: 'error_event', id: req.params.id })
+    return { ok: true }
+  })
+
+  // DELETE /admin/errors/:id — eliminar definitivamente
+  fastify.delete<{ Params: { id: string } }>('/admin/errors/:id', async (req, reply) => {
+    const { error } = await supabaseAdmin.from('error_events').delete().eq('id', req.params.id)
+    if (error) return reply.status(400).send({ error: error.message })
+    logFromRequest(req, 'error.delete', { type: 'error_event', id: req.params.id })
+    return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════
+  //  COHORTS · /admin/cohorts
+  // ════════════════════════════════════════════════════════
+  // Calcula la matriz de retención: para cada mes de signup,
+  // qué % de clínicas estaban activas (tuvieron al menos 1 lead)
+  // en cada mes posterior.
+  fastify.get<{ Querystring: { months?: string } }>('/admin/cohorts', async (req) => {
+    const months = Math.min(parseInt(req.query.months ?? '12', 10) || 12, 24)
+    const since = new Date()
+    since.setMonth(since.getMonth() - months)
+    since.setDate(1)
+    since.setHours(0, 0, 0, 0)
+    const sinceIso = since.toISOString()
+
+    // 1) Tamaños de cada cohorte
+    const { data: sizes, error: sizesErr } = await supabaseAdmin
+      .from('admin_cohort_sizes')
+      .select('*')
+      .gte('cohort_month', sinceIso)
+      .order('cohort_month', { ascending: true })
+    if (sizesErr) throw sizesErr
+
+    // 2) Actividad mensual: actividad agrupada
+    const { data: activity, error: actErr } = await supabaseAdmin
+      .from('admin_clinic_monthly_activity')
+      .select('clinic_id, cohort_month, activity_month')
+      .gte('cohort_month', sinceIso)
+      .not('activity_month', 'is', null)
+    if (actErr) throw actErr
+
+    // Indexar: cohort_month → set de clinic_ids → meses activos
+    const cohortActiveByOffset: Record<string, Record<number, Set<string>>> = {}
+    for (const row of (activity ?? []) as {
+      clinic_id: string
+      cohort_month: string
+      activity_month: string
+    }[]) {
+      const cohort = row.cohort_month
+      const offset = monthDiff(row.cohort_month, row.activity_month)
+      if (offset < 0) continue
+      if (!cohortActiveByOffset[cohort]) cohortActiveByOffset[cohort] = {}
+      if (!cohortActiveByOffset[cohort][offset]) cohortActiveByOffset[cohort][offset] = new Set()
+      cohortActiveByOffset[cohort][offset].add(row.clinic_id)
+    }
+
+    // 3) Armar la matriz
+    const now = new Date()
+    const cohorts = (sizes ?? []).map((s) => {
+      const c = s as { cohort_month: string; size: number; active_now: number; paid_now: number }
+      const monthsSince = monthDiff(c.cohort_month, now.toISOString())
+      const retention: { offset: number; active: number; pct: number }[] = []
+      for (let i = 0; i <= monthsSince; i++) {
+        const active = cohortActiveByOffset[c.cohort_month]?.[i]?.size ?? 0
+        retention.push({
+          offset: i,
+          active,
+          pct: c.size > 0 ? Math.round((active / c.size) * 1000) / 10 : 0,
+        })
+      }
+      return {
+        cohort_month: c.cohort_month,
+        size: c.size,
+        active_now: c.active_now,
+        paid_now: c.paid_now,
+        retention,
+      }
+    })
+
+    return { cohorts, max_offset: monthDiff(sinceIso, now.toISOString()) }
+  })
+}
+
+// Helper: diferencia en meses entre dos fechas ISO
+function monthDiff(fromIso: string, toIso: string): number {
+  const a = new Date(fromIso)
+  const b = new Date(toIso)
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
 }

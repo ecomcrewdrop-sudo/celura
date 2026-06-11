@@ -28,6 +28,7 @@ import adminRoutes from './routes/admin.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { persistRawMessage } from './services/brain.js'
 import { enqueueIncoming } from './services/humanizer.js'
+import { trackErrorSync } from './services/error-tracker.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
 import type { WAMessage } from './services/whatsapp.js'
 
@@ -131,6 +132,15 @@ async function buildServer() {
       Sentry.captureException(error, {
         tags: { route: req.url, method: req.method },
         extra: { clinic_id: (req as { clinic?: { id?: string } }).clinic?.id },
+      })
+      // También al feed admin de errores
+      trackErrorSync({
+        source: 'fastify',
+        code: `HTTP_${status}`,
+        severity: status >= 500 ? 'error' : 'warning',
+        error,
+        clinicId: (req as { clinic?: { id?: string } }).clinic?.id ?? null,
+        context: { route: req.url, method: req.method },
       })
     } else {
       req.log.warn({ err: error.message }, 'Error de request')

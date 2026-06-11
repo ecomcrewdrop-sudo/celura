@@ -10,6 +10,7 @@ import { sendHumanlike } from './humanizer.js'
 import { scheduleFollowUps } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import { AIClient } from './ai-provider.js'
+import { trackErrorSync } from './error-tracker.js'
 import type {
   ClinicConfig,
   Lead,
@@ -212,6 +213,13 @@ async function transcribeAudio(
     return result
   } catch (err) {
     console.error('[Brain] Error transcribiendo audio:', (err as Error).message)
+    trackErrorSync({
+      source: 'whisper',
+      code: 'TRANSCRIBE_FAILED',
+      error: err,
+      severity: 'error',
+      context: { mime, audio_bytes: audioBase64.length },
+    })
     return null
   }
 }
@@ -247,6 +255,13 @@ async function analyzeImage(
     }
   } catch (err) {
     console.error('[Brain] Error en analyzeImage:', err)
+    trackErrorSync({
+      source: ai.provider === 'claude' ? 'claude' : 'openai',
+      code: 'VISION_FAILED',
+      error: err,
+      severity: 'error',
+      context: { lead_id: lead?.id ?? null, has_caption: !!caption },
+    })
     return null
   }
 }
@@ -638,14 +653,25 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         content: m.content,
       }))
 
-      const completion = await ai.chat({
-        system: buildSystemPrompt(config, lead),
-        messages: chatMessages,
-        maxTokens: 400,
-      })
-
-      assistantText = completion.text
-      tokensUsed = completion.tokens_in + completion.tokens_out
+      try {
+        const completion = await ai.chat({
+          system: buildSystemPrompt(config, lead),
+          messages: chatMessages,
+          maxTokens: 400,
+        })
+        assistantText = completion.text
+        tokensUsed = completion.tokens_in + completion.tokens_out
+      } catch (err) {
+        trackErrorSync({
+          source: ai.provider === 'claude' ? 'claude' : 'openai',
+          code: 'CHAT_FAILED',
+          error: err,
+          severity: 'critical',
+          clinicId: clinic_id,
+          context: { lead_id: lead.id, conversation_id: conversation.id, messages_count: chatMessages.length },
+        })
+        throw err
+      }
     }
 
     // 10. Guardar respuesta del asistente
@@ -727,5 +753,13 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
 
   } catch (err) {
     console.error(`[Brain] Error procesando mensaje de ${from_phone}:`, err)
+    trackErrorSync({
+      source: 'system',
+      code: 'BRAIN_PROCESS_FAILED',
+      error: err,
+      severity: 'error',
+      clinicId: clinic_id,
+      context: { from_phone, type },
+    })
   }
 }

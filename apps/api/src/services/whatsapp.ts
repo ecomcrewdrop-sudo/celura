@@ -20,6 +20,7 @@ import fs from 'fs'
 import pino from 'pino'
 import { EventEmitter } from 'events'
 import { createClient } from '@supabase/supabase-js'
+import { trackErrorSync } from './error-tracker.js'
 
 const supabaseAdmin = createClient(
   process.env['SUPABASE_URL']!,
@@ -183,6 +184,16 @@ export async function startSession(
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
       console.log(`[WA] Conexión cerrada para clinic ${clinicId}. Código: ${statusCode}. Reconectar: ${shouldReconnect}`)
+
+      // Registrar el cierre como error (warning si reconecta, critical si fue logout)
+      trackErrorSync({
+        source: 'baileys',
+        code: shouldReconnect ? 'CONNECTION_LOST' : 'LOGGED_OUT',
+        severity: shouldReconnect ? 'warning' : 'critical',
+        error: lastDisconnect?.error ?? new Error(`status ${statusCode}`),
+        clinicId,
+        context: { statusCode, willReconnect: shouldReconnect },
+      })
 
       activeSessions.delete(clinicId)
       sessionStatus.set(clinicId, 'disconnected')
