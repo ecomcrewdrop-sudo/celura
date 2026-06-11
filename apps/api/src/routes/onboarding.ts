@@ -8,6 +8,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
+import { sendWelcomeEmail } from '../services/email/index.js'
 
 const createClinicSchema = z.object({
   name: z.string().min(2).max(120),
@@ -109,6 +110,42 @@ export default async function onboardingRoutes(fastify: FastifyInstance) {
     if (clinicError || !clinic) {
       req.log.error({ err: clinicError }, 'Error creando clínica')
       return reply.status(500).send({ error: 'Error creando clínica' })
+    }
+
+    // 6. Enviar email de bienvenida (fire-and-forget — el mailer nunca lanza,
+    //    pero igual lo metemos en try para no romper la respuesta si algo
+    //    explota en la resolución del owner).
+    try {
+      // El JWT trae el email del usuario auth; si no, lo buscamos en admin.users.
+      let ownerEmail = payload.email ?? null
+      let ownerName: string | null = null
+      if (!ownerEmail || !ownerEmail.includes('@')) {
+        const { data: authUser } = await admin.auth.admin.getUserById(userId)
+        ownerEmail = authUser?.user?.email ?? null
+        const meta = (authUser?.user?.user_metadata ?? {}) as { name?: string; full_name?: string }
+        ownerName = meta.name ?? meta.full_name ?? null
+      }
+
+      if (ownerEmail) {
+        void sendWelcomeEmail(ownerEmail, {
+          ownerName,
+          clinic: {
+            id: clinic.id,
+            name: clinic.name,
+            slug: clinic.slug,
+            plan: clinic.plan,
+            status: clinic.status,
+            is_beta: clinic.is_beta,
+            trial_ends_at: clinic.trial_ends_at,
+          },
+          isBeta: beta,
+          trialEndsAt: trialEndsAt.toISOString(),
+        }).catch((err) => {
+          req.log.warn({ err }, 'Welcome email falló (no bloquea onboarding)')
+        })
+      }
+    } catch (err) {
+      req.log.warn({ err }, 'No se pudo enviar el welcome email')
     }
 
     return reply.status(201).send({

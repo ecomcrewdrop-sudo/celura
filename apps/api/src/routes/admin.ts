@@ -24,6 +24,15 @@ import {
   closeSession,
   deleteSession,
 } from '../services/whatsapp.js'
+import {
+  sendEmail,
+  sendWelcomeEmail,
+  sendTrialEndingEmail,
+  sendPaymentPendingEmail,
+  sendAppointmentConfirmationEmail,
+  sendWaConnectedEmail,
+  sendDailySummaryEmail,
+} from '../services/email/index.js'
 
 // Cliente con service_role para queries que necesitan ver TODO
 // (saltando RLS). Los endpoints admin lo usan deliberadamente.
@@ -871,6 +880,318 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     })
 
     return { cohorts, max_offset: monthDiff(sinceIso, now.toISOString()) }
+  })
+
+  // ====================================================================
+  //  E M A I L S  ·  feed + envío manual + verificación de trials
+  // ====================================================================
+
+  // ──────────────────────────────────────────────────────────
+  //  GET /admin/emails — listado del log con filtros
+  // ──────────────────────────────────────────────────────────
+  fastify.get<{
+    Querystring: {
+      kind?: string
+      status?: string
+      clinic_id?: string
+      to?: string
+      limit?: string
+      offset?: string
+    }
+  }>('/admin/emails', async (req) => {
+    const limit = Math.min(parseInt(req.query.limit ?? '50', 10) || 50, 200)
+    const offset = parseInt(req.query.offset ?? '0', 10) || 0
+
+    let q = supabaseAdmin
+      .from('email_log')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
+
+    if (req.query.kind) q = q.eq('kind', req.query.kind)
+    if (req.query.status) q = q.eq('status', req.query.status)
+    if (req.query.clinic_id) q = q.eq('clinic_id', req.query.clinic_id)
+    if (req.query.to) q = q.ilike('to_email', `%${req.query.to}%`)
+
+    const { data, error, count } = await q
+    if (error) throw error
+
+    return {
+      emails: data ?? [],
+      total: count ?? 0,
+      limit,
+      offset,
+    }
+  })
+
+  // ──────────────────────────────────────────────────────────
+  //  GET /admin/emails/stats — números rápidos para el dashboard
+  // ──────────────────────────────────────────────────────────
+  fastify.get('/admin/emails/stats', async () => {
+    const since24h = new Date(Date.now() - 86_400_000).toISOString()
+    const since7d = new Date(Date.now() - 7 * 86_400_000).toISOString()
+
+    const [sent24h, failed24h, sent7d, skipped24h, byKind24h] = await Promise.all([
+      supabaseAdmin
+        .from('email_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'sent')
+        .gte('created_at', since24h),
+      supabaseAdmin
+        .from('email_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'failed')
+        .gte('created_at', since24h),
+      supabaseAdmin
+        .from('email_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'sent')
+        .gte('created_at', since7d),
+      supabaseAdmin
+        .from('email_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'skipped')
+        .gte('created_at', since24h),
+      supabaseAdmin
+        .from('email_log')
+        .select('kind')
+        .gte('created_at', since24h)
+        .limit(2000),
+    ])
+
+    const kindCounts: Record<string, number> = {}
+    for (const row of (byKind24h.data ?? []) as { kind: string }[]) {
+      kindCounts[row.kind] = (kindCounts[row.kind] ?? 0) + 1
+    }
+
+    return {
+      sent_24h: sent24h.count ?? 0,
+      failed_24h: failed24h.count ?? 0,
+      skipped_24h: skipped24h.count ?? 0,
+      sent_7d: sent7d.count ?? 0,
+      by_kind_24h: kindCounts,
+    }
+  })
+
+  // ──────────────────────────────────────────────────────────
+  //  POST /admin/emails/test — envío manual desde el panel
+  // ──────────────────────────────────────────────────────────
+  const sendTestSchema = z.object({
+    to: z.string().email(),
+    kind: z.enum([
+      'welcome',
+      'trial_ending',
+      'payment_pending',
+      'appointment_confirmation',
+      'wa_connected',
+      'daily_summary',
+      'test',
+    ]),
+    /** Permite forzar dry-run aunque haya API key (útil para previsualizar). */
+    dry_run: z.boolean().optional(),
+    /** Datos opcionales para personalizar el preview. */
+    owner_name: z.string().optional(),
+    clinic_name: z.string().optional(),
+  })
+
+  fastify.post('/admin/emails/test', async (req, reply) => {
+    const parsed = sendTestSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', issues: parsed.error.issues })
+    }
+
+    const { to, kind, dry_run } = parsed.data
+    const ownerName = parsed.data.owner_name ?? 'Doctor de prueba'
+    const clinicSummary = {
+      id: '00000000-0000-0000-0000-000000000000',
+      name: parsed.data.clinic_name ?? 'Clínica de prueba',
+      slug: 'demo',
+      plan: 'pro',
+      status: 'active',
+      is_beta: true,
+      trial_ends_at: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+    }
+
+    let result
+    switch (kind) {
+      case 'welcome':
+        result = await sendWelcomeEmail(to, {
+          ownerName,
+          clinic: clinicSummary,
+          isBeta: true,
+          trialEndsAt: clinicSummary.trial_ends_at,
+        })
+        break
+      case 'trial_ending':
+        result = await sendTrialEndingEmail(to, {
+          ownerName,
+          clinic: clinicSummary,
+          trialEndsAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+          isBeta: true,
+        })
+        break
+      case 'payment_pending':
+        result = await sendPaymentPendingEmail(to, {
+          ownerName,
+          clinic: clinicSummary,
+          amount: 590,
+          currency: 'MXN',
+          dueAt: new Date(Date.now() + 5 * 86_400_000).toISOString(),
+          invoiceNumber: 'CEL-DEMO-001',
+        })
+        break
+      case 'appointment_confirmation':
+        result = await sendAppointmentConfirmationEmail(to, {
+          patientName: ownerName,
+          clinic: { ...clinicSummary, phone: '+52 55 1234 5678', address: 'Av. Reforma 100' },
+          scheduledAt: new Date(Date.now() + 36 * 3_600_000).toISOString(),
+          treatment: 'Limpieza dental',
+          durationMin: 45,
+          notes: 'Llega 5 minutos antes',
+        })
+        break
+      case 'wa_connected':
+        result = await sendWaConnectedEmail(to, {
+          ownerName,
+          clinic: clinicSummary,
+          phone: '+52 55 1234 5678',
+        })
+        break
+      case 'daily_summary':
+        result = await sendDailySummaryEmail(to, {
+          ownerName,
+          clinic: clinicSummary,
+          forDate: new Date(Date.now() - 86_400_000).toISOString(),
+          stats: {
+            newLeads: 7,
+            messagesIn: 42,
+            messagesOut: 38,
+            appointmentsScheduled: 3,
+            appointmentsToday: 2,
+          },
+          highlights: ['1 paciente preguntó por implantes', '1 cita reagendada'],
+        })
+        break
+      case 'test':
+      default:
+        result = await sendEmail({
+          to,
+          kind: 'test',
+          rendered: {
+            subject: 'Prueba de envío · Celura',
+            html: '<p>Si lees esto, Resend está bien configurado. 🌿</p>',
+            text: 'Si lees esto, Resend está bien configurado.',
+          },
+          dryRun: dry_run,
+        })
+    }
+
+    logFromRequest(req, 'email.test_send', { type: 'email', id: result.id }, {
+      to,
+      kind,
+      status: result.status,
+    })
+
+    return reply.send({ success: true, result })
+  })
+
+  // ──────────────────────────────────────────────────────────
+  //  POST /admin/emails/check-trials — barre clínicas con trial
+  //  por vencer y dispara trial_ending. Idempotente: revisa
+  //  email_log para no mandar dos veces en el mismo día.
+  // ──────────────────────────────────────────────────────────
+  fastify.post('/admin/emails/check-trials', async (req, reply) => {
+    const WINDOW_DAYS = [3, 1, 0] // recordatorios en T-3, T-1 y T-0
+    const now = Date.now()
+    const sentCounts: Record<number, number> = {}
+    let skipped = 0
+    let errors = 0
+
+    for (const days of WINDOW_DAYS) {
+      const dayStart = new Date(now + days * 86_400_000)
+      dayStart.setUTCHours(0, 0, 0, 0)
+      const dayEnd = new Date(dayStart)
+      dayEnd.setUTCHours(23, 59, 59, 999)
+
+      const { data: clinics } = await supabaseAdmin
+        .from('clinics')
+        .select('id, name, slug, plan, status, owner_id, trial_ends_at, is_beta')
+        .gte('trial_ends_at', dayStart.toISOString())
+        .lte('trial_ends_at', dayEnd.toISOString())
+        .in('status', ['active', 'trial'])
+        .limit(500)
+
+      sentCounts[days] = 0
+
+      for (const c of (clinics ?? []) as Array<{
+        id: string
+        name: string
+        slug: string | null
+        plan: string | null
+        status: string | null
+        owner_id: string
+        trial_ends_at: string
+        is_beta: boolean | null
+      }>) {
+        // No enviar dos veces el mismo día por el mismo motivo
+        const since = new Date(now - 22 * 3_600_000).toISOString()
+        const { count: alreadySent } = await supabaseAdmin
+          .from('email_log')
+          .select('id', { count: 'exact', head: true })
+          .eq('clinic_id', c.id)
+          .eq('kind', 'trial_ending')
+          .in('status', ['sent', 'queued'])
+          .gte('created_at', since)
+
+        if ((alreadySent ?? 0) > 0) {
+          skipped++
+          continue
+        }
+
+        // Resolver email del owner
+        let email: string | null = null
+        let ownerName: string | null = null
+        try {
+          const { data: u } = await supabaseAdmin.auth.admin.getUserById(c.owner_id)
+          email = u?.user?.email ?? null
+          const meta = (u?.user?.user_metadata ?? {}) as { name?: string; full_name?: string }
+          ownerName = meta.name ?? meta.full_name ?? null
+        } catch {
+          // Sin email, no podemos hacer nada
+        }
+        if (!email) {
+          errors++
+          continue
+        }
+
+        const result = await sendTrialEndingEmail(email, {
+          ownerName,
+          clinic: {
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            plan: c.plan,
+            status: c.status,
+            trial_ends_at: c.trial_ends_at,
+            is_beta: c.is_beta,
+          },
+          trialEndsAt: c.trial_ends_at,
+          isBeta: !!c.is_beta,
+        })
+        if (result.status === 'sent') sentCounts[days] = (sentCounts[days] ?? 0) + 1
+        else if (result.status === 'failed') errors++
+      }
+    }
+
+    logFromRequest(req, 'email.check_trials', undefined, { sent: sentCounts, skipped, errors })
+
+    return reply.send({
+      success: true,
+      sent: sentCounts,
+      skipped,
+      errors,
+      windows_days: WINDOW_DAYS,
+    })
   })
 }
 

@@ -39,6 +39,26 @@ const schema = z.object({
 
   // Sentry (opcional: si no está, error tracking se desactiva con un warning)
   SENTRY_DSN: z.string().url().optional(),
+
+  // ── Emails (Resend) ─────────────────────────────────────
+  // Si RESEND_API_KEY no está, el mailer queda en modo "dry-run":
+  // registra el intento en email_log con status=skipped y NO lanza.
+  // Esto permite trabajar en local sin claves reales.
+  RESEND_API_KEY: z
+    .string()
+    .min(10)
+    .refine(placeholder, 'falta el valor real')
+    .optional(),
+  RESEND_FROM: z
+    .string()
+    .default('Celura <hola@celura.clinic>'),
+  RESEND_REPLY_TO: z.string().email().optional(),
+  DASHBOARD_URL: z
+    .string()
+    .url()
+    .default('https://app.celura.clinic'),
+  BRAND_NAME: z.string().default('Celura'),
+  SUPPORT_EMAIL: z.string().email().default('hola@celura.clinic'),
 })
 
 const parsed = schema.safeParse(process.env)

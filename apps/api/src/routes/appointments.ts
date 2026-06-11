@@ -13,6 +13,7 @@ import {
   scheduleAppointmentReminders,
   cancelAppointmentFollowUps,
 } from '../services/scheduler.js'
+import { sendAppointmentConfirmationEmail } from '../services/email/index.js'
 
 const STATUSES = [
   'scheduled',
@@ -121,7 +122,7 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
     // 1. Verificar que el lead existe Y pertenece a esta clínica (RLS lo garantiza)
     const { data: lead, error: leadErr } = await req.supabase
       .from('leads')
-      .select('id, stage')
+      .select('id, stage, email, name')
       .eq('id', parsed.data.lead_id)
       .maybeSingle()
 
@@ -172,6 +173,49 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
     } catch (err) {
       // No romper la respuesta si BullMQ falla — la cita ya está guardada
       req.log.error({ err }, 'Error programando reminders (cita creada igual)')
+    }
+
+    // 5. Confirmación por email al paciente (si tiene email registrado)
+    const leadWithContact = lead as { id: string; stage: string; email: string | null; name: string | null }
+    if (leadWithContact.email) {
+      try {
+        const { data: clinicRow } = await req.supabase
+          .from('clinics')
+          .select('id, name, slug, plan, status, phone, city')
+          .eq('id', clinic_id)
+          .maybeSingle<{
+            id: string
+            name: string
+            slug: string | null
+            plan: string | null
+            status: string | null
+            phone: string | null
+            city: string | null
+          }>()
+
+        if (clinicRow) {
+          void sendAppointmentConfirmationEmail(leadWithContact.email, {
+            patientName: leadWithContact.name,
+            clinic: {
+              id: clinicRow.id,
+              name: clinicRow.name,
+              slug: clinicRow.slug,
+              plan: clinicRow.plan,
+              status: clinicRow.status,
+              phone: clinicRow.phone,
+              address: clinicRow.city ?? null,
+            },
+            scheduledAt: parsed.data.scheduled_at,
+            treatment: parsed.data.treatment ?? null,
+            durationMin: parsed.data.duration_min,
+            notes: parsed.data.notes ?? null,
+          }).catch((err) => {
+            req.log.warn({ err }, 'Email de confirmación falló (cita creada igual)')
+          })
+        }
+      } catch (err) {
+        req.log.warn({ err }, 'No se pudo enviar el email de confirmación')
+      }
     }
 
     return reply.status(201).send({ success: true, appointment: appt })
