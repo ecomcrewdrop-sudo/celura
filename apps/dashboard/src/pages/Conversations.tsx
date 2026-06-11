@@ -823,21 +823,21 @@ export default function Conversations() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
         {/* Lista */}
-        <div className="lg:col-span-4">
-          <Card className="p-0">
+        <div className="lg:col-span-3">
+          <Card className="flex h-[78vh] flex-col p-0">
             {!waConnected ? (
-              <div className="py-16 text-center">
-                <WifiOff className="mx-auto mb-3 h-8 w-8 text-zinc-600" />
+              <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+                <WifiOff className="mb-3 h-8 w-8 text-zinc-600" />
                 <p className="text-sm text-zinc-400">Sin conversaciones</p>
                 <p className="mt-1 text-xs text-zinc-600">Conecta WhatsApp para empezar.</p>
               </div>
             ) : loading ? (
-              <div className="flex items-center justify-center py-16">
+              <div className="flex flex-1 items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-lime-400" />
               </div>
             ) : listError && convos.length === 0 ? (
-              <div className="py-12 text-center">
-                <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
+              <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+                <AlertCircle className="mb-3 h-8 w-8 text-red-400" />
                 <p className="text-sm text-red-300">{listError}</p>
                 <button
                   onClick={() => { setLoading(true); loadList().finally(() => setLoading(false)) }}
@@ -847,8 +847,8 @@ export default function Conversations() {
                 </button>
               </div>
             ) : visibleConvos.length === 0 ? (
-              <div className="py-16 text-center">
-                <MessageSquare className="mx-auto mb-3 h-8 w-8 text-zinc-600" />
+              <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+                <MessageSquare className="mb-3 h-8 w-8 text-zinc-600" />
                 <p className="text-sm text-zinc-500">Sin resultados</p>
                 <p className="text-xs text-zinc-600">
                   {search || stage !== 'all' || escalatedOnly || unreadOnly
@@ -857,7 +857,7 @@ export default function Conversations() {
                 </p>
               </div>
             ) : (
-              <div className="max-h-[70vh] divide-y divide-dark-600 overflow-y-auto">
+              <div className="flex-1 divide-y divide-dark-600 overflow-y-auto">
                 {visibleConvos.map((c) => {
                   const selected = detail?.lead?.id === c.lead_id
                   const displayName = c.leads?.name ?? c.leads?.phone ?? 'Sin nombre'
@@ -925,7 +925,7 @@ export default function Conversations() {
         </div>
 
         {/* Chat */}
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-6">
           <Card className="flex h-[78vh] flex-col p-0">
             {detailLoading ? (
               <div className="flex flex-1 items-center justify-center">
