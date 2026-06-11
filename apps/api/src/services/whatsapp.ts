@@ -208,17 +208,52 @@ export async function startSession(
     }
   })
 
-  // ── Sincronizar histórico al primer login (Baileys lo emite una vez) ──
+  // ── Sincronizar histórico al primer login ──
+  // Baileys puede entregar MILES de mensajes en cada batch. Si emitimos
+  // un evento por mensaje, el brain dispara 3-4 calls a Supabase × N msgs
+  // en paralelo → tumba la DB. Solución: agrupamos por chat y emitimos
+  // UN evento por contacto con todos sus mensajes.
   sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
     if (!messages || messages.length === 0) return
-    console.log(`[WA] Histórico recibido para clinic ${clinicId}: ${messages.length} mensajes (final=${isLatest})`)
+    console.log(
+      `[WA] Histórico clinic ${clinicId}: ${messages.length} msgs (final=${isLatest}) → agrupando`,
+    )
 
+    // Agrupar por jid del contacto
+    const byJid = new Map<string, WAMessage[]>()
     for (const msg of messages) {
       const waMsg = await buildWAMessage(sock, clinicId, msg, 'history')
       if (!waMsg) continue
-      waEvents.emit('message:history', waMsg)
+      const arr = byJid.get(waMsg.from_jid) ?? []
+      arr.push(waMsg)
+      byJid.set(waMsg.from_jid, arr)
+    }
+
+    console.log(
+      `[WA] Histórico clinic ${clinicId}: ${byJid.size} chats únicos → emitiendo batches`,
+    )
+
+    // Un batch por chat
+    for (const [jid, msgs] of byJid) {
+      // Cap a los 100 mensajes más recientes por chat para no explotar JSONB
+      const sorted = msgs.sort((a, b) => a.timestamp - b.timestamp)
+      const capped = sorted.slice(-100)
+      waEvents.emit('history:batch', {
+        clinic_id: clinicId,
+        jid,
+        messages: capped,
+      } satisfies HistoryBatch)
     }
   })
+}
+
+/**
+ * Payload de un batch de histórico (un chat completo, no un mensaje suelto).
+ */
+export interface HistoryBatch {
+  clinic_id: string
+  jid: string
+  messages: WAMessage[]
 }
 
 /**

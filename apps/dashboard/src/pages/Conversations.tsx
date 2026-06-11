@@ -5,7 +5,7 @@ import { useClinic } from '@/hooks/useClinic'
 import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Badge from '@/components/Badge'
-import { MessageSquare, User, Bot, Wifi, WifiOff } from 'lucide-react'
+import { MessageSquare, User, Bot, Wifi, WifiOff, AlertCircle, RefreshCw } from 'lucide-react'
 
 interface ConvoSummary {
   id: string; lead_id: string; total_tokens: number; updated_at: string
@@ -27,6 +27,7 @@ export default function Conversations() {
   const [convos, setConvos] = useState<ConvoSummary[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [detail, setDetail] = useState<ConvoDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [liveConnected, setLiveConnected] = useState(false)
@@ -42,6 +43,9 @@ export default function Conversations() {
     if (r.data) {
       setConvos(r.data.conversations)
       setTotal(r.data.total)
+      setListError(null)
+    } else if (r.error) {
+      setListError(r.error)
     }
   }, [])
 
@@ -143,6 +147,17 @@ export default function Conversations() {
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-lime-400 border-t-transparent" />
+              </div>
+            ) : listError && convos.length === 0 ? (
+              <div className="py-12 text-center">
+                <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
+                <p className="text-sm text-red-300">{listError}</p>
+                <button
+                  onClick={() => { setLoading(true); loadList().finally(() => setLoading(false)) }}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-dark-400"
+                >
+                  <RefreshCw className="h-3 w-3" /> Reintentar
+                </button>
               </div>
             ) : convos.length === 0 ? (
               <div className="py-16 text-center">

@@ -7,7 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt } from './crypto.js'
-import { sendMessage, type WAMessage } from './whatsapp.js'
+import { sendMessage, type WAMessage, type HistoryBatch } from './whatsapp.js'
 import { scheduleFollowUps } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import type {
@@ -339,6 +339,89 @@ export async function persistRawMessage(waMsg: WAMessage): Promise<void> {
       .eq('id', conversation.id)
   } catch (err) {
     console.error(`[Brain] persistRawMessage error (${direction}) ${from_phone}:`, err)
+  }
+}
+
+// ── Persistir un BATCH de histórico de un solo chat ──
+// 1 upsert de lead + 1 upsert/select de conversación + 1 update con todos
+// los mensajes mergeados. Sin invocar IA. Reemplaza N×3 calls por solo 3.
+export async function persistHistoryBatch(batch: HistoryBatch): Promise<void> {
+  const { clinic_id, jid, messages } = batch
+  if (messages.length === 0) return
+
+  const first = messages[0]!
+  const last = messages[messages.length - 1]!
+
+  try {
+    // 1 upsert para el lead
+    const { data: lead } = await supabaseAdmin
+      .from('leads')
+      .upsert(
+        {
+          clinic_id,
+          phone: first.from_phone,
+          phone_wa_id: jid,
+          last_message_at: new Date(last.timestamp).toISOString(),
+        },
+        { onConflict: 'clinic_id,phone' },
+      )
+      .select('id')
+      .single<{ id: string }>()
+
+    if (!lead) return
+
+    // Conseguir conversación existente
+    let { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('id, messages')
+      .eq('clinic_id', clinic_id)
+      .eq('lead_id', lead.id)
+      .maybeSingle<{ id: string; messages: (Message & { wa_id?: string })[] }>()
+
+    if (!conversation) {
+      const { data: newConv } = await supabaseAdmin
+        .from('conversations')
+        .insert({ clinic_id, lead_id: lead.id, messages: [], context: {} })
+        .select('id, messages')
+        .single<{ id: string; messages: (Message & { wa_id?: string })[] }>()
+      conversation = newConv
+    }
+    if (!conversation) return
+
+    // Mergear: existentes + nuevos, dedupe por wa_id
+    const existingIds = new Set(
+      (conversation.messages ?? [])
+        .map((m) => m.wa_id)
+        .filter((id): id is string => !!id),
+    )
+
+    const newOnes: (Message & { wa_id?: string; source?: string })[] = messages
+      .filter((m) => m.message_id && !existingIds.has(m.message_id))
+      .map((m) => ({
+        role: m.direction === 'outgoing' ? 'assistant' : 'user',
+        content: m.content || (m.type === 'image' ? '[Foto]' : ''),
+        timestamp: new Date(m.timestamp).toISOString(),
+        type: m.type,
+        wa_id: m.message_id,
+        source: 'history',
+      }))
+
+    if (newOnes.length === 0) return
+
+    const merged = [...(conversation.messages ?? []), ...newOnes]
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .slice(-200) // tope global de mensajes por conversación
+
+    await supabaseAdmin
+      .from('conversations')
+      .update({ messages: merged })
+      .eq('id', conversation.id)
+
+    console.log(
+      `[Brain] Histórico persistido · clinic ${clinic_id} · ${first.from_phone} · ${newOnes.length} msgs nuevos`,
+    )
+  } catch (err) {
+    console.error(`[Brain] persistHistoryBatch error clinic ${clinic_id} ${jid}:`, err)
   }
 }
 
