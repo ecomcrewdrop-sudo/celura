@@ -6,7 +6,7 @@ export default function Layout() {
     <div className="min-h-screen bg-dark-900">
       <Sidebar />
       <main className="ml-64 min-h-screen">
-        <div className="mx-auto max-w-[1140px] px-8 py-8">
+        <div className="mx-auto max-w-[1600px] px-8 py-8">
           <Outlet />
         </div>
       </main>
