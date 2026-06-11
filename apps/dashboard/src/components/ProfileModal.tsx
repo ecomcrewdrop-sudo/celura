@@ -93,6 +93,7 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
   // UI state
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState<TabKey | null>(null)
+  const [savedBanner, setSavedBanner] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
@@ -103,12 +104,15 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
     return () => { document.body.style.overflow = '' }
   }, [open])
 
+  // Solo resetea el formulario cuando el modal SE ABRE (no cada vez que
+  // cambia user/clinic en background — eso pisaría lo que está escribiendo).
   useEffect(() => {
     if (!open) return
     setTab(initialTab)
     setError(null)
     setInfo(null)
     setSavedFlash(null)
+    setSavedBanner(null)
     setFullName((user?.user_metadata?.['full_name'] as string | undefined) ?? '')
     setClinicName(clinic?.name ?? '')
     setPhone(clinic?.phone ?? '')
@@ -117,7 +121,19 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
     setEmail(user?.email ?? '')
     setNewPassword('')
     setConfirmPassword('')
-  }, [open, initialTab, user, clinic])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTab])
+
+  // Snapshot original para comparar (se actualiza cuando llega data fresca
+  // y el formulario está limpio).
+  const original = useMemo(() => ({
+    fullName: ((user?.user_metadata?.['full_name'] as string | undefined) ?? '').trim(),
+    clinicName: (clinic?.name ?? '').trim(),
+    phone: (clinic?.phone ?? '').trim(),
+    city: (clinic?.city ?? '').trim(),
+    country: clinic?.country ?? 'CO',
+    email: user?.email ?? '',
+  }), [user, clinic])
 
   // Cerrar con Escape
   useEffect(() => {
@@ -134,38 +150,48 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
   const meta = useMemo(() => planMeta(clinic?.plan ?? 'trial'), [clinic?.plan])
   const trialDays = useMemo(() => daysLeft(clinic?.trial_ends_at ?? null), [clinic?.trial_ends_at])
 
-  // Detectar cambios dirty
+  // Detectar cambios dirty — comparamos siempre TRIMEADO contra el snapshot original
   const profileDirty =
-    (fullName || '') !== (((user?.user_metadata?.['full_name'] as string | undefined) ?? '')) ||
-    clinicName !== (clinic?.name ?? '') ||
-    (phone || '') !== (clinic?.phone ?? '') ||
-    (city || '') !== (clinic?.city ?? '') ||
-    country !== (clinic?.country ?? 'CO')
+    fullName.trim() !== original.fullName ||
+    clinicName.trim() !== original.clinicName ||
+    phone.trim() !== original.phone ||
+    city.trim() !== original.city ||
+    country !== original.country
 
-  const accountEmailDirty = email.trim() !== (user?.email ?? '')
+  const accountEmailDirty = email.trim() !== original.email && email.trim().length > 0
   const passwordReady = newPassword.length >= 8 && newPassword === confirmPassword
 
-  const flash = (key: TabKey) => {
+  const flash = (key: TabKey, banner?: string) => {
     setSavedFlash(key)
-    setTimeout(() => setSavedFlash(null), 1800)
+    if (banner) setSavedBanner(banner)
+    setTimeout(() => { setSavedFlash(null); setSavedBanner(null) }, 2800)
+  }
+
+  const handleDiscardProfile = () => {
+    setFullName(original.fullName)
+    setClinicName(original.clinicName)
+    setPhone(original.phone)
+    setCity(original.city)
+    setCountry(original.country)
+    setError(null); setInfo(null); setSavedBanner(null)
   }
 
   const handleSaveProfile = async () => {
     if (!profileDirty || saving) return
-    setSaving(true); setError(null); setInfo(null)
+    setSaving(true); setError(null); setInfo(null); setSavedBanner(null)
 
     // 1) Profile (Supabase auth metadata) — solo si cambió full_name
-    if ((fullName || '') !== (((user?.user_metadata?.['full_name'] as string | undefined) ?? ''))) {
+    if (fullName.trim() !== original.fullName) {
       const err = await updateProfile({ full_name: fullName.trim() })
       if (err) { setError(err); setSaving(false); return }
     }
 
-    // 2) Clínica (backend)
+    // 2) Clínica (backend) — solo enviamos lo que cambió
     const clinicChanges: Record<string, unknown> = {}
-    if (clinicName !== (clinic?.name ?? '')) clinicChanges['name'] = clinicName.trim()
-    if ((phone || '') !== (clinic?.phone ?? '')) clinicChanges['phone'] = phone.trim() || null
-    if ((city || '') !== (clinic?.city ?? '')) clinicChanges['city'] = city.trim() || null
-    if (country !== (clinic?.country ?? 'CO')) clinicChanges['country'] = country
+    if (clinicName.trim() !== original.clinicName) clinicChanges['name'] = clinicName.trim()
+    if (phone.trim() !== original.phone)           clinicChanges['phone'] = phone.trim() || null
+    if (city.trim() !== original.city)             clinicChanges['city'] = city.trim() || null
+    if (country !== original.country)              clinicChanges['country'] = country
 
     if (Object.keys(clinicChanges).length > 0) {
       const res = await api.patch('/api/clinics/me', clinicChanges)
@@ -173,13 +199,20 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
       await refresh()
     }
 
-    flash('profile')
+    // Reescribimos los inputs con los valores TRIMEADOS para que el snapshot
+    // siguiente los reconozca como limpios.
+    setFullName(fullName.trim())
+    setClinicName(clinicName.trim())
+    setPhone(phone.trim())
+    setCity(city.trim())
+
+    flash('profile', 'Cambios guardados · todo persistido en la base de datos.')
     setSaving(false)
   }
 
   const handleSaveEmail = async () => {
     if (!accountEmailDirty || saving) return
-    setSaving(true); setError(null); setInfo(null)
+    setSaving(true); setError(null); setInfo(null); setSavedBanner(null)
     const err = await updateEmail(email.trim())
     if (err) { setError(err); setSaving(false); return }
     setInfo('Revisa tu correo: te enviamos un enlace para confirmar el cambio.')
@@ -189,12 +222,12 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
 
   const handleSavePassword = async () => {
     if (!passwordReady || saving) return
-    setSaving(true); setError(null); setInfo(null)
+    setSaving(true); setError(null); setInfo(null); setSavedBanner(null)
     const err = await updatePassword(newPassword)
     if (err) { setError(err); setSaving(false); return }
     setNewPassword(''); setConfirmPassword('')
     setInfo('Contraseña actualizada. Úsala la próxima vez que inicies sesión.')
-    flash('account')
+    flash('account', 'Contraseña guardada correctamente.')
     setSaving(false)
   }
 
@@ -266,6 +299,12 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
 
           <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
             {/* Mensajes globales */}
+            {savedBanner && (
+              <div className="animate-scale-in mb-4 flex items-start gap-2 rounded-lg border border-lime-500/30 bg-lime-500/10 px-3 py-2.5 text-xs text-lime-300">
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span className="font-medium">{savedBanner}</span>
+              </div>
+            )}
             {error && (
               <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -363,9 +402,28 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
                 </FieldGroup>
 
                 <div className="sticky bottom-0 -mx-6 flex items-center justify-end gap-2 border-t border-white/[0.06] bg-dark-800/95 px-6 py-3 backdrop-blur">
-                  <span className="mr-auto text-[11px] text-zinc-500">
-                    {profileDirty ? 'Tienes cambios sin guardar.' : 'Todo está al día.'}
+                  <span className="mr-auto flex items-center gap-1.5 text-[11px] text-zinc-500">
+                    {profileDirty ? (
+                      <>
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                        Tienes cambios sin guardar.
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-3 w-3 text-lime-400" />
+                        Todo está al día.
+                      </>
+                    )}
                   </span>
+                  {profileDirty && (
+                    <button
+                      onClick={handleDiscardProfile}
+                      disabled={saving}
+                      className="rounded-lg px-3 py-2 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 disabled:opacity-40"
+                    >
+                      Descartar
+                    </button>
+                  )}
                   <button
                     onClick={handleSaveProfile}
                     disabled={!profileDirty || saving}
