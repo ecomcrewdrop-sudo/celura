@@ -144,19 +144,20 @@ export default function AdminClinicDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/[0.06] bg-dark-800 shadow-2xl">
+      <div className="hidden flex-1 bg-black/50 backdrop-blur-sm md:block" onClick={onClose} />
+      <aside className="safe-pb relative flex h-dscreen w-full flex-col overflow-y-auto border-white/[0.06] bg-dark-800 shadow-2xl md:h-full md:max-w-xl md:border-l">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/[0.06] bg-dark-800/95 px-6 py-4 backdrop-blur">
+        <div className="safe-pt sticky top-0 z-10 flex items-center justify-between border-b border-white/[0.06] bg-dark-800/95 px-5 py-4 backdrop-blur sm:px-6">
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-white">
               {data?.clinic.clinic_name ?? 'Cargando…'}
             </p>
-            <p className="text-[11px] text-zinc-500">{data?.clinic.slug}</p>
+            <p className="truncate text-[11px] text-zinc-500">{data?.clinic.slug}</p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
+            className="touch-target -mr-1.5 flex shrink-0 items-center justify-center rounded-lg p-2 text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
+            aria-label="Cerrar"
           >
             <X className="h-4 w-4" />
           </button>
@@ -164,7 +165,7 @@ export default function AdminClinicDrawer({
 
         {/* Toast */}
         {toast && (
-          <div className="mx-6 mt-4 flex items-center gap-2 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
+          <div className="mx-5 mt-4 flex items-center gap-2 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-xs text-violet-200 sm:mx-6">
             <CheckCircle2 className="h-3.5 w-3.5" />
             {toast}
           </div>
@@ -175,7 +176,7 @@ export default function AdminClinicDrawer({
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-violet-400 border-t-transparent" />
           </div>
         ) : (
-          <div className="space-y-6 px-6 py-5">
+          <div className="space-y-6 px-5 py-5 sm:px-6">
             {/* Dueño */}
             {data.owner && (
               <Section title="Dueño">

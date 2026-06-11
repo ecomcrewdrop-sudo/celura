@@ -714,11 +714,11 @@ function AppointmentRow({
   return (
     <div
       onClick={onClick}
-      className="group flex cursor-pointer items-center gap-4 px-5 py-3.5 transition-colors hover:bg-dark-700/50"
+      className="group flex cursor-pointer items-center gap-3 px-4 py-3.5 transition-colors hover:bg-dark-700/50 sm:gap-4 sm:px-5"
     >
       {/* Hora grande */}
-      <div className="w-14 shrink-0 text-right">
-        <div className="font-mono text-base font-semibold text-white">{formatTime(appt.scheduled_at)}</div>
+      <div className="w-12 shrink-0 text-right sm:w-14">
+        <div className="font-mono text-[15px] font-semibold text-white sm:text-base">{formatTime(appt.scheduled_at)}</div>
         <div className="text-[10.5px] text-zinc-500">{appt.duration_min} min</div>
       </div>
 
@@ -726,8 +726,8 @@ function AppointmentRow({
       <div className={`h-12 w-0.5 shrink-0 rounded-full ${meta.bar}`} />
 
       {/* Avatar + info */}
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-dark-600 text-xs font-bold text-zinc-300 ring-1 ring-white/[0.04]">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+        <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-dark-600 text-xs font-bold text-zinc-300 ring-1 ring-white/[0.04] sm:flex">
           {initials(lead?.name, lead?.phone ?? '')}
         </div>
         <div className="min-w-0 flex-1">
@@ -840,7 +840,8 @@ function WeekView({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-px bg-dark-600">
+      <div className="overflow-x-auto">
+      <div className="grid min-w-[840px] grid-cols-7 gap-px bg-dark-600">
         {days.map((d) => {
           const items = byDay.get(d.toDateString()) ?? []
           const isToday = isSameDay(d, today)
@@ -886,6 +887,7 @@ function WeekView({
             </div>
           )
         })}
+      </div>
       </div>
     </Card>
   )

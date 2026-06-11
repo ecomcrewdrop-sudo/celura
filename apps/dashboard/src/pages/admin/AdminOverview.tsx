@@ -54,7 +54,7 @@ export default function AdminOverview() {
     <div className="space-y-6">
       {/* Hero */}
       <div>
-        <h1 className="text-2xl font-semibold text-white">Vista global</h1>
+        <h1 className="text-xl font-semibold text-white sm:text-2xl">Vista global</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Estado del sistema en tiempo real. Cada métrica enlaza al detalle.
         </p>
@@ -126,7 +126,7 @@ export default function AdminOverview() {
         <p className="mt-1 text-xs text-zinc-500">
           Indicadores que muestran si todo está fluyendo como debe.
         </p>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <HealthRow
             label="Cobertura de WhatsApp"
             value={`${pct(data.clinics.wa_connected, data.clinics.active)}%`}

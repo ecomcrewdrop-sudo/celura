@@ -316,20 +316,20 @@ export default function WhatsApp() {
               }`}
             />
 
-            <div className="relative p-6">
+            <div className="relative p-4 sm:p-6">
               {/* ── ESTADO: CONECTADO ── */}
               {connected && (
                 <div className="space-y-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-lime-500/15 ring-1 ring-lime-500/30">
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-lime-500/15 ring-1 ring-lime-500/30">
                         <Wifi className="h-7 w-7 text-lime-400" />
                         <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-lime-400 opacity-75" />
                           <span className="relative inline-flex h-3 w-3 rounded-full bg-lime-400" />
                         </span>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-[11px] font-medium uppercase tracking-wider text-lime-400/80">
                           WhatsApp activo
                         </div>
@@ -347,19 +347,19 @@ export default function WhatsApp() {
                   </div>
 
                   {/* Numero + acciones */}
-                  <div className="rounded-2xl border border-white/[0.06] bg-dark-900/60 p-5">
-                    <div className="flex items-center justify-between gap-4">
+                  <div className="rounded-2xl border border-white/[0.06] bg-dark-900/60 p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-3 sm:gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
                           <Phone className="h-3 w-3" /> Número conectado
                         </div>
-                        <div className="mt-1.5 truncate font-mono text-xl font-semibold text-white">
+                        <div className="mt-1.5 truncate font-mono text-lg font-semibold text-white sm:text-xl">
                           {formatPhone(waStatus?.phone ?? config?.wa_phone)}
                         </div>
                       </div>
                       <button
                         onClick={copyPhone}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-dark-700 px-3 py-2 text-xs text-zinc-300 transition hover:border-white/[0.12] hover:text-white"
+                        className="touch-target inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.06] bg-dark-700 px-3 py-2 text-xs text-zinc-300 transition hover:border-white/[0.12] hover:text-white"
                       >
                         {copiedPhone ? (
                           <>
@@ -375,7 +375,7 @@ export default function WhatsApp() {
                   </div>
 
                   {/* Stats rapidos */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <MiniStat
                       icon={<Activity className="h-4 w-4 text-lime-400" />}
                       label="Estado sesión"
@@ -416,7 +416,7 @@ export default function WhatsApp() {
                     <div className="relative">
                       <div className="absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-lime-500/30 via-amber-400/30 to-lime-500/30 blur" />
                       <div className="relative rounded-2xl border-2 border-amber-400/40 bg-white p-3">
-                        <img src={qrImage} alt="QR WhatsApp" className="h-60 w-60" />
+                        <img src={qrImage} alt="QR WhatsApp" className="h-[260px] w-[260px] max-w-[78vw] sm:h-60 sm:w-60" />
                       </div>
                       {/* Esquinas decorativas */}
                       <span className="absolute -left-2 -top-2 h-4 w-4 rounded-tl-lg border-l-2 border-t-2 border-amber-400" />
@@ -426,7 +426,7 @@ export default function WhatsApp() {
                     </div>
 
                     {/* Countdown + status */}
-                    <div className="flex items-center gap-3 text-[12.5px]">
+                    <div className="flex flex-wrap items-center justify-center gap-3 text-[12.5px]">
                       <div className="inline-flex items-center gap-1.5 rounded-full bg-dark-700 px-3 py-1 text-zinc-400">
                         <Clock className="h-3.5 w-3.5" />
                         Expira en <span className="font-mono text-zinc-200">{qrCountdown}s</span>
@@ -438,7 +438,7 @@ export default function WhatsApp() {
                     </div>
 
                     {/* Barra de progreso del countdown */}
-                    <div className="h-1 w-60 overflow-hidden rounded-full bg-dark-600">
+                    <div className="h-1 w-full max-w-[260px] overflow-hidden rounded-full bg-dark-600">
                       <div
                         className="h-full bg-gradient-to-r from-amber-400 to-lime-400 transition-all duration-1000"
                         style={{ width: `${(qrCountdown / QR_TTL_SEC) * 100}%` }}
@@ -446,7 +446,7 @@ export default function WhatsApp() {
                     </div>
                   </div>
 
-                  <div className="flex justify-center gap-3">
+                  <div className="flex flex-wrap justify-center gap-3">
                     <Button variant="secondary" size="sm" onClick={() => generateQR(false)}>
                       <RefreshCw className="h-3.5 w-3.5" /> Regenerar QR
                     </Button>
@@ -461,10 +461,10 @@ export default function WhatsApp() {
               {!connected && !qrImage && (
                 <div className="space-y-6">
                   <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-dark-600 ring-1 ring-white/[0.06]">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-dark-600 ring-1 ring-white/[0.06]">
                       <WifiOff className="h-7 w-7 text-zinc-500" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
                         Sin conexión
                       </div>
@@ -478,7 +478,7 @@ export default function WhatsApp() {
                   </div>
 
                   {/* Pasos numerados */}
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
                     <Step
                       n={1}
                       title="Genera el QR"
@@ -659,7 +659,7 @@ export default function WhatsApp() {
             </li>
           </ul>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={() => setConfirmDisconnect(false)} disabled={disconnecting}>
               Cancelar
             </Button>

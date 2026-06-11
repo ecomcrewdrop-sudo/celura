@@ -166,16 +166,16 @@ export default function AdminPromos() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Códigos promo</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Códigos promo</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Cupones de descuento, extensión de trial, upgrade de plan y códigos de afiliados.
           </p>
         </div>
         <button
           onClick={() => setEditing({ ...EMPTY })}
-          className="flex items-center gap-2 rounded-lg bg-violet-500/15 px-3 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/25"
+          className="touch-target flex items-center justify-center gap-2 rounded-lg bg-violet-500/15 px-3 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/25"
         >
           <Plus className="h-4 w-4" /> Nuevo código
         </button>
@@ -218,7 +218,7 @@ export default function AdminPromos() {
             </button>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Código">
               <div className="flex gap-2">
                 <input
@@ -415,8 +415,70 @@ export default function AdminPromos() {
         </div>
       )}
 
-      {/* Lista */}
-      <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800">
+      {/* Lista — mobile cards */}
+      <div className="space-y-2 lg:hidden">
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-white/[0.03]" />
+          ))
+        ) : items.length === 0 ? (
+          <div className="rounded-2xl border border-white/[0.06] bg-dark-800 p-12 text-center text-sm text-zinc-500">
+            <Ticket className="mx-auto h-6 w-6 text-zinc-600" />
+            <p className="mt-2">Ningún código creado todavía.</p>
+          </div>
+        ) : (
+          items.map((p) => (
+            <div key={p.id} className="rounded-xl border border-white/[0.06] bg-dark-800 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  onClick={() => copy(p.code)}
+                  className="flex items-center gap-1.5 rounded bg-white/[0.04] px-2 py-1 font-mono text-sm font-semibold text-violet-300 hover:bg-white/[0.08]"
+                >
+                  {p.code}
+                  <Copy className="h-3 w-3 opacity-60" />
+                </button>
+                <StatusBadge active={p.is_active} expired={!!p.ends_at && new Date(p.ends_at) < new Date()} />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <KindBadge kind={p.kind} value={p.value} currency={p.currency} target={p.target_plan} />
+                {p.affiliate_user_id && (
+                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                    Afiliado · {p.affiliate_commission_pct ?? 0}%
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+                <span>
+                  Uso <span className="text-zinc-300">{p.redemptions_count}</span>
+                  <span className="text-zinc-600"> / {p.max_redemptions ?? '∞'}</span>
+                </span>
+                <span>
+                  {p.ends_at
+                    ? `hasta ${new Date(p.ends_at).toLocaleDateString('es')}`
+                    : 'sin fin'}
+                </span>
+              </div>
+              <div className="mt-3 flex gap-2 border-t border-white/[0.04] pt-3">
+                <button
+                  onClick={() => startEdit(p)}
+                  className="touch-target flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/[0.06] bg-dark-700 px-2 py-2 text-xs text-zinc-300"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Editar
+                </button>
+                <button
+                  onClick={() => remove(p.id)}
+                  className="touch-target flex items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Lista — desktop */}
+      <div className="hidden overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800 lg:block">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-white/[0.06] bg-white/[0.02]">
             <tr className="text-[11px] uppercase tracking-wider text-zinc-500">
@@ -545,7 +607,7 @@ function Field({
   full?: boolean
 }) {
   return (
-    <div className={full ? 'lg:col-span-2' : ''}>
+    <div className={full ? 'sm:col-span-2' : ''}>
       <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
         {label}
       </label>

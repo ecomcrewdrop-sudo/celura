@@ -45,19 +45,19 @@ export default function Login() {
 
   if (needsConfirmation) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white px-4">
+      <div className="flex min-h-dscreen items-center justify-center bg-white px-4 safe-px safe-pt safe-pb">
         <div className="mx-auto w-full max-w-md text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1a6b50]/10">
             <Mail className="h-6 w-6 text-[#1a6b50]" />
           </div>
-          <h1 className="mt-5 text-2xl font-bold text-dark-900">Confirma tu correo</h1>
+          <h1 className="mt-5 text-2xl font-bold text-dark-900 sm:text-3xl">Confirma tu correo</h1>
           <p className="mt-2 text-sm text-zinc-500">
             Te enviamos un enlace a <span className="font-medium text-dark-900">{email}</span>.
             Ábrelo para activar tu cuenta y volver aquí.
           </p>
           <button
             onClick={() => { setNeedsConfirmation(false); setIsRegister(false) }}
-            className="mt-6 text-sm font-medium text-[#1a6b50] hover:underline"
+            className="touch-target mt-6 inline-flex items-center justify-center px-4 text-sm font-medium text-[#1a6b50] hover:underline"
           >
             Volver a iniciar sesión
           </button>
@@ -67,13 +67,13 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex min-h-dscreen bg-white">
       {/* Left Panel — Form */}
-      <div className="flex w-full flex-col justify-center bg-white px-8 lg:w-[480px] lg:min-w-[480px] lg:px-16">
+      <div className="flex w-full flex-col justify-center bg-white px-5 safe-px safe-pt safe-pb sm:px-8 lg:w-[480px] lg:min-w-[480px] lg:px-16">
         <div className="mx-auto w-full max-w-sm">
-          <img src="/logo.svg" alt="Celura" className="mb-10 h-10" />
+          <img src="/logo.svg" alt="Celura" className="mb-8 h-10 sm:mb-10" />
 
-          <h1 className="text-2xl font-bold text-dark-900">
+          <h1 className="text-2xl font-bold text-dark-900 sm:text-3xl">
             {isRegister ? 'Crea tu cuenta' : 'Bienvenido a Celura'}
           </h1>
           <p className="mt-2 text-sm text-zinc-500">
@@ -110,6 +110,7 @@ export default function Login() {
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Dr. María Pérez"
                   required
+                  autoComplete="name"
                   className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-dark-900 outline-none transition-all placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 />
               </div>
@@ -124,6 +125,11 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="doctor@clinica.com"
                 required
+                autoComplete="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-dark-900 outline-none transition-all placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
               />
             </div>
@@ -138,6 +144,7 @@ export default function Login() {
                 placeholder="Mínimo 6 caracteres"
                 minLength={6}
                 required
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
                 className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-dark-900 outline-none transition-all placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
               />
             </div>
@@ -151,7 +158,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a6b50] px-4 py-3 text-sm font-semibold text-white transition-all hover:bg-[#15573f] active:scale-[0.98] disabled:opacity-50"
+              className="touch-target flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a6b50] px-4 py-3.5 text-base font-semibold text-white transition-all hover:bg-[#15573f] active:scale-[0.98] disabled:opacity-50 sm:text-sm"
             >
               {loading ? (
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -168,7 +175,7 @@ export default function Login() {
             {isRegister ? '¿Ya tienes cuenta? ' : '¿No tienes cuenta? '}
             <button
               onClick={() => { setIsRegister(!isRegister); setError(null) }}
-              className="font-medium text-[#1a6b50] hover:underline"
+              className="inline-flex min-h-[44px] items-center justify-center px-1 font-medium text-[#1a6b50] hover:underline"
             >
               {isRegister ? 'Inicia sesión' : 'Crear cuenta'}
             </button>

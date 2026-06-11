@@ -112,11 +112,11 @@ export default function AdminErrors() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Feed de errores</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Feed de errores</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {total.toLocaleString()} eventos agrupados por huella. Click en cualquiera para ver el stack.
+            {total.toLocaleString()} eventos agrupados por huella. Tap para ver el stack.
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs text-zinc-400">
@@ -179,7 +179,7 @@ export default function AdminErrors() {
       )}
 
       {/* Filtros */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3">
+      <div className="grid grid-cols-1 gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3 sm:flex sm:flex-wrap sm:items-center">
         <select
           value={source}
           onChange={(e) => setSource(e.target.value)}
@@ -322,7 +322,7 @@ export default function AdminErrors() {
 
               {expanded === e.id && (
                 <div className="border-t border-white/[0.04] p-4">
-                  <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     {e.detail && (
                       <DetailBlock label="Mensaje completo">
                         <pre className="whitespace-pre-wrap break-words rounded bg-dark-900 p-3 text-[11px] text-zinc-300">

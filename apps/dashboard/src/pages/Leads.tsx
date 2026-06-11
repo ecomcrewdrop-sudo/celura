@@ -648,6 +648,12 @@ function LeadRow({
         </div>
       </div>
 
+      {/* Score compacto en móvil */}
+      <div className={`flex shrink-0 flex-col items-end sm:hidden`}>
+        <span className={`text-sm font-bold ${sc.color}`}>{lead.score}</span>
+        <span className="text-[10px] text-zinc-500">{formatRelative(lead.last_message_at)}</span>
+      </div>
+
       {/* Stage badge */}
       <div className="hidden shrink-0 sm:block">
         <Badge stage={lead.stage}>{STAGE_META[lead.stage]?.label ?? lead.stage}</Badge>
@@ -1332,7 +1338,7 @@ function CreateModal({
   return (
     <Modal open={true} onClose={onClose} title="Nuevo lead">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input
             label="Nombre"
             value={form.name}
@@ -1347,7 +1353,7 @@ function CreateModal({
             required
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input
             label="Email"
             type="email"

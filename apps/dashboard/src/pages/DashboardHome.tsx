@@ -281,10 +281,10 @@ export default function DashboardHome() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-[12px] font-medium capitalize text-zinc-500">{today}</p>
-          <h1 className="mt-1 text-[1.75rem] font-bold tracking-tight text-white">
+          <h1 className="mt-1 text-[1.4rem] font-bold tracking-tight text-white sm:text-[1.75rem]">
             {greetingByHour()}{clinic?.name ? `, ${clinic.name.split(' ')[0]}` : ''}
           </h1>
-          <p className="mt-1 text-[13px] text-zinc-500">
+          <p className="mt-1 text-[12.5px] text-zinc-500 sm:text-[13px]">
             {nextTodayAppt
               ? <>Tu próxima cita es <span className="text-zinc-300">{formatTime(nextTodayAppt.scheduled_at)}</span> · <span className="text-zinc-400">{leadsMap.get(nextTodayAppt.lead_id)?.name ?? leadsMap.get(nextTodayAppt.lead_id)?.phone ?? 'paciente'}</span></>
               : todayAppts.length > 0
@@ -777,12 +777,12 @@ function KpiCard({
   return (
     <button
       onClick={onClick}
-      className="group block rounded-2xl border border-white/[0.06] bg-dark-800 p-5 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-dark-800/90 hover:shadow-lg hover:shadow-black/20"
+      className="group block rounded-2xl border border-white/[0.06] bg-dark-800 p-4 text-left transition-all duration-200 hover:border-white/[0.12] hover:bg-dark-800/90 hover:shadow-lg hover:shadow-black/20 sm:p-5"
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
-          <p className="mt-1.5 text-3xl font-bold tracking-tight text-white">{value}</p>
+          <p className="text-[10.5px] uppercase tracking-wider text-zinc-500 sm:text-[11px]">{label}</p>
+          <p className="mt-1.5 text-2xl font-bold tracking-tight text-white sm:text-3xl">{value}</p>
           <div className="mt-1 flex items-center gap-2">
             {delta !== undefined && delta !== null && (
               <span className={`inline-flex items-center gap-0.5 text-[11px] font-medium ${

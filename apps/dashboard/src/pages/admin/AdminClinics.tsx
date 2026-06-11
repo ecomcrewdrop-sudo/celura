@@ -68,24 +68,22 @@ export default function AdminClinics() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Clínicas</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {total.toLocaleString()} cuentas registradas. Click en una fila para acciones.
-          </p>
-        </div>
+      <div>
+        <h1 className="text-xl font-semibold text-white sm:text-2xl">Clínicas</h1>
+        <p className="mt-1 text-sm text-zinc-500">
+          {total.toLocaleString()} cuentas registradas. Tap en una fila para acciones.
+        </p>
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3">
-        <div className="relative min-w-[240px] flex-1">
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3 sm:flex sm:flex-wrap sm:items-center">
+        <div className="relative col-span-2 sm:min-w-[240px] sm:flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar por nombre, slug o teléfono…"
-            className="h-9 w-full rounded-lg border border-white/[0.06] bg-dark-700 pl-9 pr-3 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-violet-400/30 focus:outline-none"
+            className="h-10 w-full rounded-lg border border-white/[0.06] bg-dark-700 pl-9 pr-3 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-violet-400/30 focus:outline-none sm:h-9"
           />
         </div>
 
@@ -118,7 +116,7 @@ export default function AdminClinics() {
               setStatus('')
               setWaFilter('')
             }}
-            className="flex h-9 items-center gap-1 rounded-lg border border-white/[0.06] bg-dark-700 px-3 text-xs text-zinc-400 hover:bg-white/[0.04]"
+            className="col-span-2 flex h-9 items-center justify-center gap-1 rounded-lg border border-white/[0.06] bg-dark-700 px-3 text-xs text-zinc-400 hover:bg-white/[0.04] sm:col-span-1"
           >
             <X className="h-3 w-3" />
             Limpiar
@@ -126,8 +124,75 @@ export default function AdminClinics() {
         )}
       </div>
 
-      {/* Tabla */}
-      <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800">
+      {/* Vista móvil: cards */}
+      <div className="space-y-2 lg:hidden">
+        {loading && items.length === 0 ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-white/[0.03]" />
+          ))
+        ) : items.length === 0 ? (
+          <div className="rounded-2xl border border-white/[0.06] bg-dark-800 p-12 text-center text-sm text-zinc-500">
+            <Filter className="mx-auto h-6 w-6 text-zinc-600" />
+            <p className="mt-2">Ninguna clínica matchea los filtros.</p>
+          </div>
+        ) : (
+          items.map((c) => (
+            <button
+              key={c.clinic_id}
+              onClick={() => setSelectedId(c.clinic_id)}
+              className="block w-full rounded-xl border border-white/[0.06] bg-dark-800 p-4 text-left transition-colors active:bg-white/[0.04]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white">{c.clinic_name}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-zinc-500">
+                    {[c.city, c.country].filter(Boolean).join(' · ') || c.slug}
+                  </p>
+                </div>
+                <MoreVertical className="h-4 w-4 shrink-0 text-zinc-600" />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <PlanBadge plan={c.plan} beta={c.is_beta} />
+                <StatusBadge status={c.status} />
+                {c.wa_connected ? (
+                  <span className="inline-flex items-center gap-1 rounded bg-lime-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-lime-300">
+                    <Smartphone className="h-2.5 w-2.5" />
+                    WA
+                  </span>
+                ) : (
+                  <span className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+                    sin WA
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.04] pt-3 text-center">
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-zinc-500">Leads</p>
+                  <p className="mt-0.5 text-sm font-semibold text-white">
+                    {c.leads_total.toLocaleString()}
+                    {c.leads_7d > 0 && (
+                      <span className="ml-1 text-[10px] font-normal text-lime-400">+{c.leads_7d}</span>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-zinc-500">Tokens</p>
+                  <p className="mt-0.5 text-sm font-semibold text-zinc-300">{c.tokens_total.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-zinc-500">Trial</p>
+                  <p className="mt-0.5 text-xs text-zinc-400">
+                    {c.trial_ends_at ? formatTrial(c.trial_ends_at) : '—'}
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* Tabla — solo desktop */}
+      <div className="hidden overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800 lg:block">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-white/[0.06] bg-white/[0.02]">
             <tr className="text-[11px] uppercase tracking-wider text-zinc-500">

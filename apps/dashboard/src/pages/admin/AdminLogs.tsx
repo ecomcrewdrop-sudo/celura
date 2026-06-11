@@ -46,13 +46,13 @@ export default function AdminLogs() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-white">Auditoría</h1>
+        <h1 className="text-xl font-semibold text-white sm:text-2xl">Auditoría</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          {total.toLocaleString()} eventos registrados. Click en cualquier fila para ver el payload.
+          {total.toLocaleString()} eventos registrados. Tap cualquier fila para ver el payload.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3">
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-dark-800 p-3 sm:flex sm:flex-wrap sm:items-center">
         <select
           value={action}
           onChange={(e) => setAction(e.target.value)}
@@ -81,7 +81,8 @@ export default function AdminLogs() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800">
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="border-b border-white/[0.06] bg-white/[0.02]">
             <tr className="text-[11px] uppercase tracking-wider text-zinc-500">
               <th className="px-4 py-3 font-medium">Cuándo</th>
@@ -164,6 +165,7 @@ export default function AdminLogs() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

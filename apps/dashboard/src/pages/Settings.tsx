@@ -584,13 +584,13 @@ export default function Settings() {
                         />
                       </button>
 
-                      <div className="flex flex-1 items-center gap-2">
+                      <div className="flex flex-1 flex-wrap items-center gap-2">
                         <input
                           type="time"
                           disabled={!isOpen}
                           value={parsed.from}
                           onChange={(e) => updateSchedule(key, `${e.target.value}-${parsed.to}`)}
-                          className="rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50 disabled:opacity-40"
+                          className="min-w-0 flex-1 rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50 disabled:opacity-40 sm:flex-none"
                         />
                         <span className="text-xs text-zinc-500">a</span>
                         <input
@@ -598,7 +598,7 @@ export default function Settings() {
                           disabled={!isOpen}
                           value={parsed.to}
                           onChange={(e) => updateSchedule(key, `${parsed.from}-${e.target.value}`)}
-                          className="rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50 disabled:opacity-40"
+                          className="min-w-0 flex-1 rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50 disabled:opacity-40 sm:flex-none"
                         />
                         {!isOpen && (
                           <span className="text-[11px] uppercase tracking-wide text-zinc-500">Cerrado</span>
@@ -711,9 +711,9 @@ export default function Settings() {
                   </p>
                 </div>
 
-                <div className="flex items-start justify-between gap-4 rounded-lg border border-dark-500 bg-dark-700/50 px-3 py-2.5">
-                  <div className="flex items-start gap-2">
-                    <Sparkles className="mt-0.5 h-4 w-4 text-lime-400" />
+                <div className="flex items-start justify-between gap-3 rounded-lg border border-dark-500 bg-dark-700/50 px-3 py-2.5 sm:gap-4">
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-lime-400" />
                     <div>
                       <p className="text-sm font-medium text-white">Sugerir tratamiento e invitar a agendar</p>
                       <p className="mt-0.5 text-xs text-zinc-500">
@@ -1044,9 +1044,34 @@ export default function Settings() {
       )}
 
       <div className="flex flex-col gap-5 lg:flex-row">
-        {/* Nav lateral */}
+        {/* Nav lateral (desktop) / tabbar horizontal (mobile) */}
         <nav className="lg:w-[260px] lg:shrink-0">
-          <Card className="p-2">
+          {/* Mobile: horizontal scrollable tabbar */}
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide lg:hidden">
+            {SECTIONS.map((s) => {
+              const Icon = s.icon
+              const isActive = active === s.id
+              const dirty = dirtyBySection[s.id]
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setActive(s.id)}
+                  className={`touch-target flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
+                    isActive
+                      ? 'border-lime-500/40 bg-lime-500/10 text-white'
+                      : 'border-dark-500 bg-dark-700 text-zinc-300'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-lime-400' : 'text-zinc-500'}`} />
+                  <span className="whitespace-nowrap">{s.label}</span>
+                  {dirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" title="Cambios sin guardar" />}
+                </button>
+              )
+            })}
+          </div>
+          {/* Desktop: vertical list */}
+          <Card className="hidden p-2 lg:block">
             {SECTIONS.map((s) => {
               const Icon = s.icon
               const isActive = active === s.id
@@ -1084,8 +1109,8 @@ export default function Settings() {
 
       {/* Sticky save bar */}
       {isDirty && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-dark-600 bg-dark-800/95 px-4 py-3 backdrop-blur-sm lg:left-64">
-          <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
+        <div className="safe-pb fixed inset-x-0 bottom-0 z-30 border-t border-dark-600 bg-dark-800/95 px-4 py-3 backdrop-blur-sm lg:left-64">
+          <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <p className="flex items-center gap-2 text-sm text-zinc-300">
               <span className="h-2 w-2 rounded-full bg-amber-400" />
               Tienes cambios sin guardar
@@ -1095,11 +1120,11 @@ export default function Settings() {
                 type="button"
                 onClick={handleDiscard}
                 disabled={saving}
-                className="flex items-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-3 py-2 text-sm text-zinc-300 hover:text-white disabled:opacity-50"
+                className="touch-target flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-3 py-2 text-sm text-zinc-300 hover:text-white disabled:opacity-50 sm:flex-none"
               >
                 <RotateCcw className="h-3.5 w-3.5" /> Descartar
               </button>
-              <Button onClick={handleSave} loading={saving} disabled={saving}>
+              <Button onClick={handleSave} loading={saving} disabled={saving} className="flex-1 sm:flex-none">
                 <Save className="h-4 w-4" /> {saving ? 'Guardando…' : 'Guardar cambios'}
               </Button>
             </div>

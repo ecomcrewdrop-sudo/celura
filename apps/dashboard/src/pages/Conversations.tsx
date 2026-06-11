@@ -40,7 +40,11 @@ import {
   BellOff,
   Plus,
   Trash2,
+  ArrowLeft,
+  Info,
 } from 'lucide-react'
+
+type MobileView = 'list' | 'thread' | 'detail'
 
 type Stage = 'new' | 'contacted' | 'warm' | 'interested' | 'scheduled' | 'attended' | 'recurring' | 'lost'
 type Urgency = 'low' | 'medium' | 'high' | 'emergency'
@@ -259,6 +263,9 @@ export default function Conversations() {
   const [savingLead, setSavingLead] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
 
+  // Mobile single-pane view state
+  const [mobileView, setMobileView] = useState<MobileView>('list')
+
   const openLeadIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const draftRef = useRef<HTMLTextAreaElement | null>(null)
@@ -314,6 +321,7 @@ export default function Conversations() {
     setEditingName(false)
     setEditingTreatment(false)
     setShowTemplates(false)
+    setMobileView('thread')
     await loadDetail(leadId)
     api.post(`/api/leads/${leadId}/conversation/read`, { read: true }).catch(() => {})
     // Optimistic: marcar localmente como leída
@@ -681,6 +689,7 @@ export default function Conversations() {
         src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
       />
 
+      <div className={mobileView === 'list' ? '' : 'hidden lg:block'}>
       <PageHeader
         title="Conversaciones"
         subtitle={
@@ -689,7 +698,7 @@ export default function Conversations() {
             : 'WhatsApp desconectado'
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={toggleSound}
               className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
@@ -719,6 +728,7 @@ export default function Conversations() {
           </div>
         }
       />
+      </div>
 
       {/* Panel atajos */}
       {showShortcuts && (
@@ -736,7 +746,7 @@ export default function Conversations() {
       )}
 
       {/* Banner desconectado */}
-      {!waConnected && (
+      {!waConnected && mobileView === 'list' && (
         <Card className="mb-5 border-amber-500/30 bg-amber-500/[0.06]">
           <div className="flex items-start gap-3">
             <WifiOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
@@ -751,7 +761,7 @@ export default function Conversations() {
       )}
 
       {/* Filtros */}
-      {waConnected && (
+      {waConnected && mobileView === 'list' && (
         <Card className="mb-5 p-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative flex-1">
@@ -765,13 +775,13 @@ export default function Conversations() {
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Filter className="h-3.5 w-3.5 text-zinc-500" />
+            <div className="scrollbar-hide -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 lg:flex-wrap lg:overflow-visible">
+              <Filter className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
               {STAGES.map((s) => (
                 <button
                   key={s.value}
                   onClick={() => setStage(s.value)}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     stage === s.value
                       ? 'border-lime-500/50 bg-lime-500/15 text-lime-300'
                       : 'border-dark-500 bg-dark-700 text-zinc-400 hover:border-dark-400'
@@ -782,7 +792,7 @@ export default function Conversations() {
               ))}
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => setEscalatedOnly((v) => !v)}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
@@ -823,8 +833,8 @@ export default function Conversations() {
 
       <div className="flex flex-col gap-5 lg:flex-row">
         {/* Lista */}
-        <div className="lg:w-[300px] lg:shrink-0">
-          <Card className="flex h-[78vh] flex-col p-0">
+        <div className={`${mobileView === 'list' ? '' : 'hidden'} lg:block lg:w-[300px] lg:shrink-0`}>
+          <Card className="flex h-[calc(100dvh-12rem)] flex-col p-0 lg:h-[78vh]">
             {!waConnected ? (
               <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
                 <WifiOff className="mb-3 h-8 w-8 text-zinc-600" />
@@ -925,8 +935,8 @@ export default function Conversations() {
         </div>
 
         {/* Chat */}
-        <div className="min-w-0 flex-1">
-          <Card className="flex h-[78vh] flex-col p-0">
+        <div className={`${mobileView === 'thread' ? '' : 'hidden'} min-w-0 flex-1 lg:block`}>
+          <Card className="flex h-[calc(100dvh-8rem)] flex-col p-0 lg:h-[78vh]">
             {detailLoading ? (
               <div className="flex flex-1 items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-lime-400" />
@@ -948,8 +958,16 @@ export default function Conversations() {
             ) : (
               <>
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-dark-600 px-5 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
+                <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-dark-600 bg-dark-800/95 px-3 py-3 backdrop-blur lg:static lg:px-5">
+                  <div className="flex min-w-0 items-center gap-2 lg:gap-3">
+                    <button
+                      onClick={() => setMobileView('list')}
+                      className="touch-target -ml-1 flex shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:text-white lg:hidden"
+                      title="Volver"
+                      aria-label="Volver a la lista"
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lime-500/20 text-[11px] font-semibold uppercase text-lime-300">
                       {initials(detail.lead.name, detail.lead.phone)}
                     </div>
@@ -957,24 +975,24 @@ export default function Conversations() {
                       <p className="truncate text-sm font-semibold text-white">
                         {detail.lead.name ?? detail.lead.phone}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
                         <span className="font-mono">{detail.lead.phone}</span>
-                        <span>·</span>
+                        <span className="hidden sm:inline">·</span>
                         <span>Score {detail.lead.score}</span>
-                        <span>·</span>
+                        <span className="hidden sm:inline">·</span>
                         <span>{detail.conversation.messages.length} msj</span>
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {detail.conversation.context?.escalated && (
-                      <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2.5 py-1 text-[11px] font-medium text-red-300">
+                      <span className="hidden items-center gap-1 rounded-full bg-red-500/15 px-2.5 py-1 text-[11px] font-medium text-red-300 sm:flex">
                         <AlertTriangle className="h-3 w-3" /> Escalada
                       </span>
                     )}
                     <button
                       onClick={copyPhone}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-dark-500 bg-dark-700 text-zinc-400 hover:text-white"
+                      className="touch-target hidden items-center justify-center rounded-lg border border-dark-500 bg-dark-700 text-zinc-400 hover:text-white lg:flex lg:h-7 lg:w-7"
                       title="Copiar teléfono"
                     >
                       {copiedPhone ? <Check className="h-3.5 w-3.5 text-lime-400" /> : <Copy className="h-3.5 w-3.5" />}
@@ -983,11 +1001,19 @@ export default function Conversations() {
                       href={`https://wa.me/${digits(detail.lead.phone)}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex h-7 items-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-2 text-[11px] text-zinc-300 hover:text-white"
+                      className="touch-target hidden items-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-2 text-[11px] text-zinc-300 hover:text-white lg:flex lg:h-7"
                       title="Abrir en WhatsApp"
                     >
                       <ExternalLink className="h-3 w-3" /> WA
                     </a>
+                    <button
+                      onClick={() => setMobileView('detail')}
+                      className="touch-target flex items-center justify-center rounded-lg text-zinc-300 hover:text-white lg:hidden"
+                      title="Detalles del paciente"
+                      aria-label="Ver detalles"
+                    >
+                      <Info className="h-5 w-5" />
+                    </button>
                   </div>
                 </div>
 
@@ -1092,7 +1118,7 @@ export default function Conversations() {
                 )}
 
                 {/* Composer */}
-                <div className="border-t border-dark-600 p-3">
+                <div className="safe-pb border-t border-dark-600 p-3">
                   {sendError && (
                     <p className="mb-2 flex items-center gap-1.5 text-xs text-red-300">
                       <AlertCircle className="h-3 w-3" /> {sendError}
@@ -1102,7 +1128,7 @@ export default function Conversations() {
                     <button
                       onClick={() => setShowTemplates((v) => !v)}
                       disabled={!waConnected}
-                      className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
+                      className={`touch-target flex shrink-0 items-center justify-center rounded-lg border transition-colors ${
                         showTemplates
                           ? 'border-lime-500/50 bg-lime-500/15 text-lime-300'
                           : 'border-dark-500 bg-dark-700 text-zinc-400 hover:text-white'
@@ -1130,7 +1156,7 @@ export default function Conversations() {
                       <button
                         onClick={() => sendManual()}
                         disabled={!waConnected || sending || !draft.trim()}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-lime-500 text-dark-900 transition-colors hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="touch-target flex shrink-0 items-center justify-center rounded-lg bg-lime-500 text-dark-900 transition-colors hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-40"
                         title="Enviar"
                       >
                         {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1145,7 +1171,22 @@ export default function Conversations() {
         </div>
 
         {/* Sidebar */}
-        <div className="lg:h-[78vh] lg:w-[320px] lg:shrink-0 lg:overflow-y-auto lg:pr-1">
+        <div className={`${mobileView === 'detail' ? '' : 'hidden'} lg:block lg:h-[78vh] lg:w-[320px] lg:shrink-0 lg:overflow-y-auto lg:pr-1`}>
+          {mobileView === 'detail' && detail && (
+            <div className="safe-pb mb-3 flex items-center gap-2 lg:hidden">
+              <button
+                onClick={() => setMobileView('thread')}
+                className="touch-target -ml-1 flex items-center justify-center rounded-lg text-zinc-300 hover:text-white"
+                title="Volver al chat"
+                aria-label="Volver al chat"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <p className="truncate text-sm font-semibold text-white">
+                {detail.lead.name ?? detail.lead.phone}
+              </p>
+            </div>
+          )}
           {!detail ? (
             <Card className="flex h-full items-center justify-center">
               <p className="px-6 py-8 text-center text-xs text-zinc-600">

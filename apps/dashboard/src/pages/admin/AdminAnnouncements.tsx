@@ -126,16 +126,16 @@ export default function AdminAnnouncements() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Anuncios</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Anuncios</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Mensajes globales visibles para doctores. Filtra por audiencia y vigencia.
           </p>
         </div>
         <button
           onClick={() => setEditing({ ...EMPTY })}
-          className="flex items-center gap-2 rounded-lg bg-violet-500/15 px-3 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/25"
+          className="touch-target flex items-center justify-center gap-2 rounded-lg bg-violet-500/15 px-3 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/25"
         >
           <Plus className="h-4 w-4" /> Nuevo anuncio
         </button>
@@ -162,7 +162,7 @@ export default function AdminAnnouncements() {
             </button>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Título">
               <input
                 value={editing.title}
@@ -371,7 +371,7 @@ function Field({
   full?: boolean
 }) {
   return (
-    <div className={full ? 'lg:col-span-2' : ''}>
+    <div className={full ? 'sm:col-span-2' : ''}>
       <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
         {label}
       </label>

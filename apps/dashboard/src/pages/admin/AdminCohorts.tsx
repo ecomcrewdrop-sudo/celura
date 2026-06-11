@@ -43,9 +43,9 @@ export default function AdminCohorts() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Cohortes</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Cohortes</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Retención por mes de signup. % de clínicas que tuvieron actividad (al menos 1 lead) en cada
             mes posterior.
@@ -54,7 +54,7 @@ export default function AdminCohorts() {
         <select
           value={months}
           onChange={(e) => setMonths(parseInt(e.target.value, 10))}
-          className="h-9 rounded-lg border border-white/[0.06] bg-dark-700 px-3 text-xs text-zinc-300 focus:border-violet-400/30 focus:outline-none"
+          className="h-10 rounded-lg border border-white/[0.06] bg-dark-700 px-3 text-xs text-zinc-300 focus:border-violet-400/30 focus:outline-none sm:h-9"
         >
           <option value={6}>Últimos 6 meses</option>
           <option value={12}>Últimos 12 meses</option>

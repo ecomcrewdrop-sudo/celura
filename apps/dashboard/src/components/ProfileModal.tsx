@@ -234,12 +234,12 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:px-4">
       <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="animate-scale-in relative grid w-full max-w-3xl grid-cols-[200px_1fr] overflow-hidden rounded-2xl border border-white/[0.08] bg-dark-800 shadow-2xl shadow-black/40">
-        {/* ─── Sidebar de tabs ─── */}
-        <div className="border-r border-white/[0.06] bg-dark-900/40 px-3 py-5">
+      <div className="animate-sheet-up safe-pb relative flex h-[95dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/[0.08] bg-dark-800 shadow-2xl shadow-black/40 sm:h-auto sm:max-h-[90vh] sm:max-w-3xl sm:grid sm:grid-cols-[200px_1fr] sm:rounded-2xl">
+        {/* ─── Sidebar de tabs (desktop) ─── */}
+        <div className="hidden border-r border-white/[0.06] bg-dark-900/40 px-3 py-5 sm:block">
           <div className="mb-4 px-2">
             <div className="flex items-center gap-3">
               <Avatar name={displayName} size="sm" ring />
@@ -275,13 +275,13 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
         </div>
 
         {/* ─── Contenido ─── */}
-        <div className="relative flex flex-col">
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
-            <div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+            <div className="min-w-0">
               <h2 className="text-base font-semibold text-white">
                 {TABS.find(t => t.key === tab)?.label}
               </h2>
-              <p className="text-[11px] text-zinc-500">
+              <p className="hidden text-[11px] text-zinc-500 sm:block">
                 {tab === 'profile' && 'Cómo te ven tus pacientes y cómo te identificamos en Celura.'}
                 {tab === 'account' && 'Tus credenciales de acceso a la plataforma.'}
                 {tab === 'plan'    && 'Tu suscripción y beneficios activos.'}
@@ -290,14 +290,38 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
             </div>
             <button
               onClick={onClose}
-              className="rounded-xl p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+              className="touch-target -mr-1.5 flex items-center justify-center rounded-xl p-2 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white"
               aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+          {/* ─── Tab bar móvil ─── */}
+          <div className="flex gap-1 overflow-x-auto border-b border-white/[0.06] bg-dark-900/40 px-3 py-2 scrollbar-hide sm:hidden">
+            {TABS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => { setTab(key); setError(null); setInfo(null) }}
+                className={clsx(
+                  'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors',
+                  tab === key
+                    ? 'bg-white/[0.08] text-white'
+                    : 'text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300',
+                )}
+              >
+                <Icon className="h-[14px] w-[14px]" />
+                {label}
+                {savedFlash === key && (
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-lime-500/20 text-lime-300">
+                    <Check className="h-2.5 w-2.5" />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
             {/* Mensajes globales */}
             {savedBanner && (
               <div className="animate-scale-in mb-4 flex items-start gap-2 rounded-lg border border-lime-500/30 bg-lime-500/10 px-3 py-2.5 text-xs text-lime-300">
@@ -401,7 +425,7 @@ export default function ProfileModal({ open, onClose, initialTab = 'profile' }: 
                   </Field>
                 </FieldGroup>
 
-                <div className="sticky bottom-0 -mx-6 flex items-center justify-end gap-2 border-t border-white/[0.06] bg-dark-800/95 px-6 py-3 backdrop-blur">
+                <div className="sticky bottom-0 -mx-5 flex items-center justify-end gap-2 border-t border-white/[0.06] bg-dark-800/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
                   <span className="mr-auto flex items-center gap-1.5 text-[11px] text-zinc-500">
                     {profileDirty ? (
                       <>

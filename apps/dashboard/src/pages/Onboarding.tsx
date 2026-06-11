@@ -50,12 +50,12 @@ export default function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-dark-900 px-4">
+    <div className="flex min-h-dscreen items-center justify-center bg-dark-900 px-4 safe-px safe-pt safe-pb">
       <div className="animate-fade-in w-full max-w-md">
         <div className="mb-6 flex flex-col items-center gap-4">
           <img src="/logo-dark.svg" alt="Celura" className="h-10" />
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-white">Configura tu clínica</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">Configura tu clínica</h1>
             <p className="mt-1 text-sm text-zinc-500">
               Solo toma un minuto. Después podrás conectar WhatsApp.
             </p>
@@ -89,11 +89,14 @@ export default function Onboarding() {
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-zinc-300">Identificador</label>
             <div className="flex items-center rounded-lg border border-dark-500 bg-dark-700">
-              <span className="pl-3 text-sm text-zinc-500">celura.clinic/</span>
+              <span className="shrink-0 pl-3 text-sm text-zinc-500">celura.clinic/</span>
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value.replace(/[^a-z0-9-]/g, ''))}
-                className="flex-1 bg-transparent px-1 py-2.5 text-sm text-white outline-none"
+                className="w-full min-w-0 flex-1 bg-transparent px-2 py-3 text-sm text-white outline-none"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 required
               />
             </div>
@@ -117,7 +120,7 @@ export default function Onboarding() {
             </div>
           )}
 
-          <Button type="submit" loading={loading} className="w-full">
+          <Button type="submit" loading={loading} className="touch-target w-full py-3.5 text-base sm:text-sm">
             Crear clínica <ArrowRight className="h-4 w-4" />
           </Button>
         </form>

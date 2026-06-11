@@ -125,10 +125,10 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-white">Flujos</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Automatiza cómo responde tu asistente con bloques visuales. Cada flujo
@@ -137,7 +137,7 @@ export default function WorkflowsPage() {
         </div>
         <button
           onClick={openNew}
-          className="flex items-center gap-2 rounded-xl bg-lime-500 px-4 py-2.5 text-sm font-semibold text-dark-900 transition-colors hover:bg-lime-400"
+          className="touch-target flex shrink-0 items-center justify-center gap-2 rounded-xl bg-lime-500 px-4 py-2.5 text-sm font-semibold text-dark-900 transition-colors hover:bg-lime-400"
         >
           <Plus className="h-4 w-4" />
           Nuevo flujo
@@ -245,18 +245,18 @@ function WorkflowCard({
         </div>
       </button>
 
-      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
         <button
           onClick={onDuplicate}
           title="Duplicar"
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.05] hover:text-white"
+          className="touch-target flex items-center justify-center rounded-md p-1.5 text-zinc-500 hover:bg-white/[0.05] hover:text-white"
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={onDelete}
           title="Eliminar"
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-400"
+          className="touch-target flex items-center justify-center rounded-md p-1.5 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-400"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -359,13 +359,13 @@ function WorkflowEditorView({
   }
 
   return (
-    <div className="flex h-[calc(100vh-0px)] flex-col">
+    <div className="flex min-h-dscreen flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] bg-dark-900/80 px-6 py-3 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] bg-dark-900/80 px-4 py-3 backdrop-blur sm:px-6">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <button
             onClick={onBack}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/[0.05] hover:text-white"
+            className="touch-target flex shrink-0 items-center justify-center rounded-lg p-1.5 text-zinc-500 hover:bg-white/[0.05] hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -401,7 +401,7 @@ function WorkflowEditorView({
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {validation.errors.length > 0 && (
             <span className="flex items-center gap-1.5 text-[11px] text-amber-300">
               <AlertTriangle className="h-3 w-3" />
@@ -426,7 +426,7 @@ function WorkflowEditorView({
       </div>
 
       {/* Descripción inline */}
-      <div className="border-b border-white/[0.06] bg-dark-900/40 px-6 py-2">
+      <div className="border-b border-white/[0.06] bg-dark-900/40 px-4 py-2 sm:px-6">
         <input
           type="text"
           value={w.description}
@@ -437,7 +437,7 @@ function WorkflowEditorView({
       </div>
 
       {saveError && (
-        <div className="mx-6 mt-3 flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300 sm:mx-6">
           <AlertTriangle className="h-4 w-4" />
           {saveError}
         </div>
@@ -445,10 +445,10 @@ function WorkflowEditorView({
 
       {/* Workspace: editor + simulador */}
       <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-[1fr_380px]">
-        <div className="overflow-y-auto rounded-2xl border border-white/[0.06] bg-dark-800/40 p-6">
+        <div className="min-w-0 overflow-x-auto overflow-y-auto rounded-2xl border border-white/[0.06] bg-dark-800/40 p-4 sm:p-6">
           <WorkflowEditor graph={w.graph} onChange={setGraph} />
         </div>
-        <div className="overflow-hidden">
+        <div className="min-w-0 overflow-hidden">
           <WorkflowSimulator
             workflows={allWorkflows.filter((x) => x.id !== w.id)}
             active={w.graph}

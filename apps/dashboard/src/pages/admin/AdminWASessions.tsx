@@ -62,9 +62,9 @@ export default function AdminWASessions() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Sesiones WhatsApp</h1>
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">Sesiones WhatsApp</h1>
           <p className="mt-1 text-sm text-zinc-500">
             {total.toLocaleString()} clínicas marcadas como conectadas. {healthy.length} activas en runtime,{' '}
             {disconnected.length > 0 ? (
@@ -78,7 +78,7 @@ export default function AdminWASessions() {
         <button
           onClick={refresh}
           disabled={refreshing}
-          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-dark-700 px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-50"
+          className="touch-target flex items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-dark-700 px-3 py-2 text-xs text-zinc-300 hover:bg-white/[0.04] disabled:opacity-50"
         >
           <RefreshCw className={clsx('h-3.5 w-3.5', refreshing && 'animate-spin')} />
           Actualizar
@@ -91,7 +91,45 @@ export default function AdminWASessions() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800">
+      {/* Vista móvil */}
+      <div className="space-y-2 lg:hidden">
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-white/[0.03]" />
+          ))
+        ) : items.length === 0 ? (
+          <div className="rounded-2xl border border-white/[0.06] bg-dark-800 p-12 text-center text-sm text-zinc-500">
+            <Smartphone className="mx-auto h-6 w-6 text-zinc-600" />
+            <p className="mt-2">Ninguna clínica con WhatsApp conectado.</p>
+          </div>
+        ) : (
+          items.map((s) => (
+            <div key={s.clinic_id} className="rounded-xl border border-white/[0.06] bg-dark-800 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-zinc-200">
+                    {s.wa_phone ?? <span className="text-zinc-600">sin teléfono</span>}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[10px] text-zinc-500">{s.clinic_id.slice(0, 12)}…</p>
+                </div>
+                <RuntimeBadge status={s.runtime_status} />
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-500">
+                {s.connected_at ? `Desde ${new Date(s.connected_at).toLocaleString('es')}` : 'Sin fecha'}
+              </p>
+              <button
+                onClick={() => resetSession(s.clinic_id)}
+                className="touch-target mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-2 py-2 text-xs text-red-300 hover:bg-red-500/20"
+              >
+                <WifiOff className="h-3.5 w-3.5" />
+                Forzar logout
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-white/[0.06] bg-dark-800 lg:block">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-white/[0.06] bg-white/[0.02]">
             <tr className="text-[11px] uppercase tracking-wider text-zinc-500">
