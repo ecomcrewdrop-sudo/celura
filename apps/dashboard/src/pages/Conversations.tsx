@@ -1145,10 +1145,10 @@ export default function Conversations() {
         </div>
 
         {/* Sidebar */}
-        <div className="lg:w-[320px] lg:shrink-0">
+        <div className="lg:h-[78vh] lg:w-[320px] lg:shrink-0 lg:overflow-y-auto lg:pr-1">
           {!detail ? (
-            <Card>
-              <p className="py-8 text-center text-xs text-zinc-600">
+            <Card className="flex h-full items-center justify-center">
+              <p className="px-6 py-8 text-center text-xs text-zinc-600">
                 Selecciona una conversación para ver los datos del paciente.
               </p>
             </Card>
