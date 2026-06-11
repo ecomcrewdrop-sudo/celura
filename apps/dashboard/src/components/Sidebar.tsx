@@ -12,7 +12,7 @@ import {
   Smartphone,
   Workflow,
   LogOut,
-  ChevronUp,
+  ChevronRight,
   UserRound,
   KeyRound,
   Crown,
@@ -129,32 +129,61 @@ export default function Sidebar() {
                   </p>
                 )}
               </div>
-              <ChevronUp
+              <ChevronRight
                 className={clsx(
                   'h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform',
-                  !menuOpen && 'rotate-180',
+                  menuOpen && 'rotate-180',
                 )}
               />
             </button>
 
-            {/* Dropdown */}
+            {/* Dropdown — sale a la derecha del sidebar como panel flotante */}
             {menuOpen && (
-              <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-white/[0.08] bg-dark-700 shadow-2xl shadow-black/40 animate-scale-in origin-bottom">
-                <div className="border-b border-white/[0.06] px-3 py-3">
+              <div className="animate-scale-in absolute left-full top-0 z-50 ml-3 w-72 origin-left overflow-hidden rounded-xl border border-white/[0.08] bg-dark-700 shadow-2xl shadow-black/60 ring-1 ring-black/20">
+                {/* Pico que conecta con la card */}
+                <div className="absolute -left-1.5 top-5 h-3 w-3 rotate-45 border-b border-l border-white/[0.08] bg-dark-700" />
+
+                <div className="relative border-b border-white/[0.06] bg-gradient-to-br from-white/[0.04] to-transparent px-4 py-4">
                   <div className="flex items-center gap-3">
-                    <Avatar name={displayName} size="md" ring />
-                    <div className="min-w-0">
+                    <Avatar name={displayName} size="lg" ring />
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-white">{displayName}</p>
                       <p className="truncate text-[11px] text-zinc-500">{user?.email}</p>
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <span
+                          className={clsx(
+                            'rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider',
+                            clinic.plan === 'pro'
+                              ? 'bg-lime-500/15 text-lime-300'
+                              : clinic.plan === 'clinica'
+                              ? 'bg-violet-500/15 text-violet-300'
+                              : clinic.plan === 'esencial'
+                              ? 'bg-sky-500/15 text-sky-300'
+                              : 'bg-amber-500/15 text-amber-300',
+                          )}
+                        >
+                          {planLabel}
+                        </span>
+                        {clinic.is_beta && (
+                          <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-300">
+                            Beta
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  {clinic.trial_ends_at && (clinic.is_beta || clinic.plan === 'trial') && (
+                    <p className="mt-3 text-[10px] text-zinc-500">
+                      {daysLeftLabel(clinic.trial_ends_at)}
+                    </p>
+                  )}
                 </div>
-                <div className="py-1">
-                  <MenuItem icon={UserRound} label="Editar perfil"      onClick={() => openModal('profile')} />
-                  <MenuItem icon={KeyRound}  label="Correo y contraseña" onClick={() => openModal('account')} />
-                  <MenuItem icon={Crown}     label="Mi plan"             onClick={() => openModal('plan')} />
+                <div className="py-1.5">
+                  <MenuItem icon={UserRound} label="Editar perfil"        onClick={() => openModal('profile')} />
+                  <MenuItem icon={KeyRound}  label="Correo y contraseña"  onClick={() => openModal('account')} />
+                  <MenuItem icon={Crown}     label="Mi plan"              onClick={() => openModal('plan')} />
                 </div>
-                <div className="border-t border-white/[0.06] py-1">
+                <div className="border-t border-white/[0.06] py-1.5">
                   <MenuItem
                     icon={LogOut}
                     label="Cerrar sesión"
