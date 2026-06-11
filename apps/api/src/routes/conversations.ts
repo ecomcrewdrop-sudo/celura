@@ -23,14 +23,6 @@ const sendSchema = z.object({
   text: z.string().trim().min(1).max(2000),
 })
 
-const updateLeadSchema = z.object({
-  stage: z.enum(['new', 'contacted', 'warm', 'interested', 'scheduled', 'attended', 'recurring', 'lost']).optional(),
-  name: z.string().trim().min(1).max(80).optional(),
-  treatment_interest: z.string().trim().max(80).nullable().optional(),
-  urgency_level: z.enum(['low', 'medium', 'high', 'emergency']).optional(),
-  notes: z.string().trim().max(2000).nullable().optional(),
-})
-
 const markReadSchema = z.object({
   read: z.boolean().default(true),
 })
@@ -279,33 +271,7 @@ export default async function conversationsRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true, message: newMsg })
   })
 
-  // ── PATCH /leads/:id ───────────────────────────────────────
-  // Actualiza datos del lead desde el panel (stage, name, urgency, notes).
-  fastify.patch('/leads/:id', async (req: FastifyRequest, reply: FastifyReply) => {
-    const p = idParam.safeParse(req.params)
-    if (!p.success) return reply.status(400).send({ error: 'ID inválido' })
-
-    const body = updateLeadSchema.safeParse(req.body)
-    if (!body.success) {
-      return reply.status(400).send({ error: 'Datos inválidos', issues: body.error.issues })
-    }
-    if (Object.keys(body.data).length === 0) {
-      return reply.status(400).send({ error: 'Nada que actualizar' })
-    }
-
-    const { data, error } = await req.supabase
-      .from('leads')
-      .update(body.data as Record<string, unknown>)
-      .eq('id', p.data.id)
-      .select()
-      .maybeSingle()
-
-    if (error || !data) {
-      req.log.error({ err: error }, 'Error actualizando lead')
-      return reply.status(500).send({ error: 'Error actualizando lead' })
-    }
-    return reply.send({ lead: data })
-  })
+  // PATCH /leads/:id vive en routes/leads.ts (mismo schema). No duplicar aquí.
 
   // ── POST /leads/:id/conversation/read ──────────────────────
   // Marca la conversación como leída/no leída por el doctor.
