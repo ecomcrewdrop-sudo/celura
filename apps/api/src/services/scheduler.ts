@@ -115,7 +115,8 @@ export async function enqueueFollowUp(
   appointmentId?: string
 ): Promise<string | null> {
   try {
-    const jobId = `${clinicId}:${leadId}:${type}:${Date.now()}`
+    // BullMQ no acepta ":" en jobId. Usamos "_" como separador.
+    const jobId = `${clinicId}_${leadId}_${type}_${Date.now()}`
 
     const job = await followUpQueue.add(
       type,

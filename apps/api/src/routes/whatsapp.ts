@@ -166,17 +166,28 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
   })
 
   // ── POST /whatsapp/disconnect ─────────────────────────────
+  // Cierra la sesión + limpia conversaciones/leads/follow-ups para que el
+  // panel quede en blanco. El doctor empieza fresco al reconectar.
   fastify.post('/whatsapp/disconnect', async (req: FastifyRequest, reply: FastifyReply) => {
     const { clinic_id } = req.tenant
 
     await closeSession(clinic_id)
 
-    // Actualizar en DB
+    // Marcar desconectado en config
     await req.supabase
       .from('clinic_config')
       .update({ wa_connected: false, wa_phone: null, wa_connected_at: null })
       .eq('clinic_id', clinic_id)
 
-    return reply.send({ success: true, message: 'WhatsApp desconectado' })
+    // Wipe: el doctor quiere panel vacío al desconectar.
+    // El orden importa por FK: follow_ups → appointments → conversations → leads.
+    await req.supabase.from('follow_ups').delete().eq('clinic_id', clinic_id)
+    await req.supabase.from('appointments').delete().eq('clinic_id', clinic_id)
+    await req.supabase.from('conversations').delete().eq('clinic_id', clinic_id)
+    await req.supabase.from('leads').delete().eq('clinic_id', clinic_id)
+
+    fastify.invalidateTenantCache(req.tenant.owner_id)
+
+    return reply.send({ success: true, message: 'WhatsApp desconectado · datos limpiados' })
   })
 }
