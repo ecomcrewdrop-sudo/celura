@@ -6,7 +6,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { sendMessage } from '../services/whatsapp.js'
+import { sendMessage, getSessionStatus } from '../services/whatsapp.js'
 import type { Message, ConversationContext } from '../types/tenant.js'
 
 const idParam = z.object({ id: z.string().uuid('ID inválido') })
@@ -100,8 +100,12 @@ export default async function conversationsRoutes(fastify: FastifyInstance) {
     }
     const { limit, offset, search, stage, escalated } = parsed.data
 
-    // WhatsApp desconectado → no mostrar conversaciones
-    if (!req.tenant.config.wa_connected) {
+    // WhatsApp desconectado → no mostrar conversaciones.
+    // Chequeamos AMBOS: flag en DB Y sesión Baileys viva. Si Baileys se cayó
+    // pero la DB quedó marcada como conectada (out of sync), también ocultamos.
+    const sessionStatus = getSessionStatus(req.tenant.clinic_id)
+    const liveConnected = sessionStatus === 'connected'
+    if (!req.tenant.config.wa_connected || !liveConnected) {
       return reply.send({ conversations: [], total: 0, limit, offset, wa_connected: false })
     }
 

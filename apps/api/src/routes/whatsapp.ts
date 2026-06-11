@@ -44,6 +44,22 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Out-of-sync: la sesión Baileys murió/no existe pero la DB sigue marcada
+    // como conectada (server reinició, sesión cayó, etc). Sincronizamos el flag
+    // y limpiamos datos huérfanos para que Conversaciones quede vacío.
+    if (status !== 'connected' && req.tenant.config.wa_connected) {
+      await req.supabase
+        .from('clinic_config')
+        .update({ wa_connected: false, wa_phone: null, wa_connected_at: null })
+        .eq('clinic_id', clinic_id)
+      await req.supabase.from('follow_ups').delete().eq('clinic_id', clinic_id)
+      await req.supabase.from('appointments').delete().eq('clinic_id', clinic_id)
+      await req.supabase.from('conversations').delete().eq('clinic_id', clinic_id)
+      await req.supabase.from('leads').delete().eq('clinic_id', clinic_id)
+      fastify.invalidateTenantCache(req.tenant.owner_id)
+      phone = null
+    }
+
     return reply.send({
       status,                           // 'disconnected' | 'connecting' | 'qr_ready' | 'connected'
       connected: status === 'connected',
