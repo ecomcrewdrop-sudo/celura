@@ -330,16 +330,16 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 2. Inicializar el cliente de IA según el proveedor configurado
-    let ai: AIClient
+    // 2. Inicializar el cliente de IA según el proveedor configurado.
+    //    Si falta la API key, NO retornamos: igual persistimos el mensaje
+    //    para que el doctor lo vea en Conversaciones y pueda responder a mano.
+    let ai: AIClient | null = null
     try {
       ai = new AIClient(config)
     } catch (err) {
       console.warn(
-        `[Brain] Clinic ${clinic_id} sin API key del proveedor seleccionado (${config.ai_provider}):`,
-        (err as Error).message,
+        `[Brain] Clinic ${clinic_id} sin API key del proveedor seleccionado (${config.ai_provider}): ${(err as Error).message} — persistiendo mensaje sin auto-respuesta.`,
       )
-      return
     }
 
     // 3. Upsert del lead (crear si no existe, actualizar si ya existe)
@@ -395,9 +395,10 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 5. Si es imagen y el análisis clínico está activo → ejecutar visión
+    // 5. Si es imagen y el análisis clínico está activo Y hay AI → ejecutar visión
     let visionAnalysis: VisionAnalysis | null = null
     if (
+      ai &&
       type === 'image' &&
       config.vision_enabled &&
       waMsg.media_data
@@ -437,15 +438,22 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       userContentForHistory = content
     }
 
-    const userMessage: Message = {
+    const userMessage: Message & { wa_id?: string } = {
       role: 'user',
       content: userContentForHistory,
       timestamp: new Date(timestamp).toISOString(),
       type,
       analyzed: !!visionAnalysis,
+      wa_id: waMsg.message_id,
     }
 
-    const updatedMessages = [...conversation.messages, userMessage]
+    // Evitar duplicados si Baileys reemite el mismo wa_id
+    const alreadyPresent = (conversation.messages ?? []).some(
+      (m) => (m as Message & { wa_id?: string }).wa_id === waMsg.message_id,
+    )
+    const updatedMessages = alreadyPresent
+      ? conversation.messages
+      : [...conversation.messages, userMessage]
 
     // 7. Actualizar contexto con la intención detectada
     const intent = detectIntent(content)
@@ -479,6 +487,28 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         .from('leads')
         .update({ urgency_level: 'high' })
         .eq('id', lead.id)
+    }
+
+    // 8a. Sin AI configurada → persistir el mensaje + escalar a humano y salir.
+    //     Así el doctor ve la conversación en el panel y puede responder a mano.
+    if (!ai) {
+      await Promise.all([
+        supabaseAdmin
+          .from('conversations')
+          .update({
+            messages: updatedMessages,
+            context: { ...updatedContext, escalated: true },
+          })
+          .eq('id', conversation.id),
+        supabaseAdmin
+          .from('leads')
+          .update({ last_message_at: new Date().toISOString() })
+          .eq('id', lead.id),
+      ])
+      console.log(
+        `[Brain] · Clinic ${clinic_id} | ${from_phone} | mensaje persistido sin auto-respuesta (sin API key de ${config.ai_provider})`,
+      )
+      return
     }
 
     // 8b. Ejecutar workflows visuales antes de Claude. Si alguno matchea y

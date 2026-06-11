@@ -19,6 +19,13 @@ import path from 'path'
 import fs from 'fs'
 import pino from 'pino'
 import { EventEmitter } from 'events'
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseAdmin = createClient(
+  process.env['SUPABASE_URL']!,
+  process.env['SUPABASE_SERVICE_ROLE_KEY']!,
+  { auth: { persistSession: false } },
+)
 
 export interface WAMessage {
   clinic_id: string
@@ -186,6 +193,21 @@ export async function startSession(
       sessionStatus.set(clinicId, 'connected')
       const phone = sock.user?.id ? jidToPhone(sock.user.id) : null
       console.log(`[WA] Conectado para clinic ${clinicId} - ${phone}`)
+
+      // Persistir el número conectado + flag para que el panel lo muestre
+      try {
+        await supabaseAdmin
+          .from('clinic_config')
+          .update({
+            wa_connected: true,
+            wa_phone: phone,
+            wa_connected_at: new Date().toISOString(),
+          })
+          .eq('clinic_id', clinicId)
+      } catch (err) {
+        console.error(`[WA] No se pudo persistir wa_phone para ${clinicId}:`, err)
+      }
+
       waEvents.emit(`status:${clinicId}`, 'connected', phone)
     }
   })
@@ -307,6 +329,15 @@ export async function sendMessage(
  */
 export function getPendingQR(clinicId: string): string | null {
   return pendingQRs.get(clinicId) ?? null
+}
+
+/**
+ * Retorna el teléfono del socket activo (si existe)
+ */
+export function getSessionPhone(clinicId: string): string | null {
+  const sock = activeSessions.get(clinicId)
+  if (!sock?.user?.id) return null
+  return jidToPhone(sock.user.id)
 }
 
 /**

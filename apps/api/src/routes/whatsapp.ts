@@ -11,6 +11,7 @@ import {
   startSession,
   getPendingQR,
   getSessionStatus,
+  getSessionPhone,
   closeSession,
   waEvents,
 } from '../services/whatsapp.js'
@@ -23,11 +24,30 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     const { clinic_id } = req.tenant
     const status = getSessionStatus(clinic_id)
     const qr = getPendingQR(clinic_id)
+    let phone = req.tenant.config.wa_phone
+
+    // Backfill: si está conectado pero la DB no tiene el número
+    // (sesiones que conectaron antes del fix), lo tomamos del socket y persistimos.
+    if (status === 'connected' && !phone) {
+      const sessionPhone = getSessionPhone(clinic_id)
+      if (sessionPhone) {
+        phone = sessionPhone
+        await req.supabase
+          .from('clinic_config')
+          .update({
+            wa_connected: true,
+            wa_phone: sessionPhone,
+            wa_connected_at: new Date().toISOString(),
+          })
+          .eq('clinic_id', clinic_id)
+        fastify.invalidateTenantCache(req.tenant.owner_id)
+      }
+    }
 
     return reply.send({
       status,                           // 'disconnected' | 'connecting' | 'qr_ready' | 'connected'
       connected: status === 'connected',
-      phone: req.tenant.config.wa_phone,
+      phone,
       qr_available: !!qr,
     })
   })
