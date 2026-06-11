@@ -821,9 +821,9 @@ export default function Conversations() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+      <div className="flex flex-col gap-5 lg:flex-row">
         {/* Lista */}
-        <div className="lg:col-span-3">
+        <div className="lg:w-[300px] lg:shrink-0">
           <Card className="flex h-[78vh] flex-col p-0">
             {!waConnected ? (
               <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
@@ -925,7 +925,7 @@ export default function Conversations() {
         </div>
 
         {/* Chat */}
-        <div className="lg:col-span-6">
+        <div className="min-w-0 flex-1">
           <Card className="flex h-[78vh] flex-col p-0">
             {detailLoading ? (
               <div className="flex flex-1 items-center justify-center">
@@ -1145,7 +1145,7 @@ export default function Conversations() {
         </div>
 
         {/* Sidebar */}
-        <div className="lg:col-span-3">
+        <div className="lg:w-[320px] lg:shrink-0">
           {!detail ? (
             <Card>
               <p className="py-8 text-center text-xs text-zinc-600">
