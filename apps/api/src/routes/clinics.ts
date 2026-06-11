@@ -36,8 +36,11 @@ const updateConfigSchema = z.object({
   vision_focus: z.array(z.string().min(1).max(40)).max(20).optional(),
   vision_auto_suggest: z.boolean().optional(),
   vision_disclaimer: z.string().max(500).optional(),
+  // Proveedor de IA: claude (Anthropic) | openai (ChatGPT)
+  ai_provider: z.enum(['claude', 'openai']).optional(),
   // Claves en texto plano: las encriptamos antes de guardar
   claude_api_key: z.string().min(20).max(200).optional(),
+  openai_api_key: z.string().min(20).max(200).optional(),
   elevenlabs_api_key: z.string().min(20).max(200).optional(),
 })
 
@@ -56,15 +59,17 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
     const { clinic, config } = req.tenant
 
     // Nunca devolver las versiones encriptadas crudas
-    const { claude_key_enc, elevenlabs_key_enc, ...safeConfig } = config
+    const { claude_key_enc, openai_key_enc, elevenlabs_key_enc, ...safeConfig } = config
 
     return reply.send({
       clinic,
       config: {
         ...safeConfig,
         claude_api_key_masked: safeMask(claude_key_enc),
+        openai_api_key_masked: safeMask(openai_key_enc),
         elevenlabs_api_key_masked: safeMask(elevenlabs_key_enc),
         has_claude_key: !!claude_key_enc,
+        has_openai_key: !!openai_key_enc,
         has_elevenlabs_key: !!elevenlabs_key_enc,
       },
     })
@@ -80,11 +85,14 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
       })
     }
 
-    const { claude_api_key, elevenlabs_api_key, ...rest } = parsed.data
+    const { claude_api_key, openai_api_key, elevenlabs_api_key, ...rest } = parsed.data
     const updates: Record<string, unknown> = { ...rest }
 
     if (claude_api_key) {
       updates['claude_key_enc'] = encrypt(claude_api_key)
+    }
+    if (openai_api_key) {
+      updates['openai_key_enc'] = encrypt(openai_api_key)
     }
     if (elevenlabs_api_key) {
       updates['elevenlabs_key_enc'] = encrypt(elevenlabs_api_key)

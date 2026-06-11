@@ -248,7 +248,11 @@ export default function DashboardHome() {
       </div>
 
       {/* Action cards */}
-      {config && (!config.wa_connected || !config.has_claude_key) && (
+      {(() => {
+        const providerKeyMissing = config
+          ? (config.ai_provider === 'openai' ? !config.has_openai_key : !config.has_claude_key)
+          : false
+        return config && (!config.wa_connected || providerKeyMissing) && (
         <div className="mt-6 space-y-3">
           {!config.wa_connected && (
             <button
@@ -268,7 +272,7 @@ export default function DashboardHome() {
             </button>
           )}
 
-          {!config.has_claude_key && (
+          {providerKeyMissing && (
             <button
               onClick={() => navigate('/settings')}
               className="group flex w-full items-center gap-5 rounded-2xl border border-amber-500/15 bg-amber-500/[0.04] px-6 py-5 text-left transition-all duration-200 hover:border-amber-500/25 hover:bg-amber-500/[0.07]"
@@ -277,7 +281,9 @@ export default function DashboardHome() {
                 <Zap className="h-6 w-6 text-amber-400" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-white">Agrega tu API key de Claude</p>
+                <p className="text-sm font-semibold text-white">
+                  Agrega tu API key de {config.ai_provider === 'openai' ? 'OpenAI (ChatGPT)' : 'Claude'}
+                </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
                   Sin ella, el asistente usa respuestas predefinidas. Con tu key, responde con IA.
                 </p>
@@ -286,7 +292,8 @@ export default function DashboardHome() {
             </button>
           )}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

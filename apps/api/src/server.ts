@@ -24,9 +24,9 @@ import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
 import workflowsRoutes from './routes/workflows.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
-import { processMessage, persistRawMessage, persistHistoryBatch } from './services/brain.js'
+import { processMessage, persistRawMessage } from './services/brain.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
-import type { WAMessage, HistoryBatch } from './services/whatsapp.js'
+import type { WAMessage } from './services/whatsapp.js'
 
 async function buildServer() {
   const fastify = Fastify({
@@ -162,16 +162,6 @@ async function main() {
     })
   })
 
-  // Histórico recibido al escanear QR → batch agrupado por chat
-  // (un solo trabajo de persistencia por contacto, no por mensaje)
-  waEvents.on('history:batch', (batch: HistoryBatch) => {
-    persistHistoryBatch(batch).catch((err) => {
-      server.log.error(
-        { err, clinic: batch.clinic_id, msgs: batch.messages.length },
-        'Error persistiendo batch de histórico',
-      )
-    })
-  })
 
   // ── Side-effects de arranque: tolerantes a fallos ─────────
   // Si Redis o el disco fallan, el servidor HTTP igual debe quedar arriba.

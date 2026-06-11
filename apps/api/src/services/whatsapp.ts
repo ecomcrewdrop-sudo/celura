@@ -136,9 +136,10 @@ export async function startSession(
     },
     browser: ['Celura', 'Chrome', '121.0.0'],
     generateHighQualityLinkPreview: false,
-    // Sincroniza el histórico al escanear el QR. Así el doctor ve
-    // las conversaciones existentes en el panel desde el día 1.
-    syncFullHistory: true,
+    // NO sincronizar histórico. El panel solo muestra chats que llegan
+    // DESPUÉS de conectar (cuando un paciente escribe → aparece la conv).
+    // El doctor no quiere ver años de historial personal en su CRM.
+    syncFullHistory: false,
     markOnlineOnConnect: false,
   })
 
@@ -189,71 +190,30 @@ export async function startSession(
     }
   })
 
-  // ── Procesar mensajes (entrantes, salientes desde el tel del doctor) ──
+  // ── Procesar mensajes en vivo ──
+  // Solo 'notify' = mensaje recibido ahora. 'append' = catch-up de chats
+  // viejos (lo ignoramos para no traer historial al panel).
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    // 'notify' = mensaje en vivo · 'append' = sincronización de chats
-    if (type !== 'notify' && type !== 'append') return
+    if (type !== 'notify') return
 
     for (const msg of messages) {
-      const waMsg = await buildWAMessage(sock, clinicId, msg, type === 'notify' ? null : 'history')
+      const waMsg = await buildWAMessage(sock, clinicId, msg, null)
       if (!waMsg) continue
 
       if (waMsg.direction === 'incoming') {
         console.log(`[WA] In  ← ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
         waEvents.emit('message', waMsg)              // brain procesa y responde
       } else {
-        console.log(`[WA] Out → ${waMsg.from_phone} (clinic ${clinicId}, ${waMsg.direction}): "${waMsg.content.slice(0, 50)}"`)
+        console.log(`[WA] Out → ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
         waEvents.emit('message:outgoing', waMsg)     // solo persistir
       }
     }
   })
 
-  // ── Sincronizar histórico al primer login ──
-  // Baileys puede entregar MILES de mensajes en cada batch. Si emitimos
-  // un evento por mensaje, el brain dispara 3-4 calls a Supabase × N msgs
-  // en paralelo → tumba la DB. Solución: agrupamos por chat y emitimos
-  // UN evento por contacto con todos sus mensajes.
-  sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
-    if (!messages || messages.length === 0) return
-    console.log(
-      `[WA] Histórico clinic ${clinicId}: ${messages.length} msgs (final=${isLatest}) → agrupando`,
-    )
-
-    // Agrupar por jid del contacto
-    const byJid = new Map<string, WAMessage[]>()
-    for (const msg of messages) {
-      const waMsg = await buildWAMessage(sock, clinicId, msg, 'history')
-      if (!waMsg) continue
-      const arr = byJid.get(waMsg.from_jid) ?? []
-      arr.push(waMsg)
-      byJid.set(waMsg.from_jid, arr)
-    }
-
-    console.log(
-      `[WA] Histórico clinic ${clinicId}: ${byJid.size} chats únicos → emitiendo batches`,
-    )
-
-    // Un batch por chat
-    for (const [jid, msgs] of byJid) {
-      // Cap a los 100 mensajes más recientes por chat para no explotar JSONB
-      const sorted = msgs.sort((a, b) => a.timestamp - b.timestamp)
-      const capped = sorted.slice(-100)
-      waEvents.emit('history:batch', {
-        clinic_id: clinicId,
-        jid,
-        messages: capped,
-      } satisfies HistoryBatch)
-    }
-  })
-}
-
-/**
- * Payload de un batch de histórico (un chat completo, no un mensaje suelto).
- */
-export interface HistoryBatch {
-  clinic_id: string
-  jid: string
-  messages: WAMessage[]
+  // NOTA: NO escuchamos 'messaging-history.set'. El doctor no quiere ver
+  // años de chats personales sincronizados al panel — solo conversaciones
+  // que arrancan después de conectar WhatsApp. Si llegan eventos de
+  // histórico igual los ignoramos (syncFullHistory=false los reduce mucho).
 }
 
 /**

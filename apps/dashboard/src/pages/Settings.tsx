@@ -5,7 +5,7 @@ import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
-import { Save, Key, Shield, Scan, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Save, Key, Shield, Scan, Sparkles, CheckCircle2, AlertCircle, Bot } from 'lucide-react'
 
 const DAYS = [
   { key: 'mon', label: 'Lunes' },
@@ -51,7 +51,9 @@ export default function Settings() {
     custom_prompt: '',
     treatments: '',
     escalate_on: '',
+    ai_provider: 'claude' as 'claude' | 'openai',
     claude_api_key: '',
+    openai_api_key: '',
     elevenlabs_api_key: '',
     schedule: {} as Record<string, string | null>,
     vision_enabled: true,
@@ -73,7 +75,9 @@ export default function Settings() {
         custom_prompt: config.custom_prompt,
         treatments: (config.treatments ?? []).join(', '),
         escalate_on: (config.escalate_on ?? []).join(', '),
+        ai_provider: config.ai_provider ?? 'claude',
         claude_api_key: '',
+        openai_api_key: '',
         elevenlabs_api_key: '',
         schedule: config.schedule ?? {},
         vision_enabled: config.vision_enabled ?? true,
@@ -122,6 +126,7 @@ export default function Settings() {
         vision_sensitivity: form.vision_sensitivity,
         vision_focus: form.vision_focus,
         vision_auto_suggest: form.vision_auto_suggest,
+        ai_provider: form.ai_provider,
       }
 
       // Campos opcionales: solo enviamos si tienen contenido (evita 400 por strings vacíos)
@@ -130,6 +135,7 @@ export default function Settings() {
       if (form.custom_prompt.trim()) body.custom_prompt = form.custom_prompt.trim()
       if (form.vision_disclaimer.trim()) body.vision_disclaimer = form.vision_disclaimer.trim()
       if (form.claude_api_key) body.claude_api_key = form.claude_api_key
+      if (form.openai_api_key) body.openai_api_key = form.openai_api_key
       if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
 
       const res = await api.patch('/api/clinics/me/config', body)
@@ -140,7 +146,7 @@ export default function Settings() {
       }
 
       setFeedback({ type: 'success', msg: 'Configuración guardada correctamente.' })
-      setForm((f) => ({ ...f, claude_api_key: '', elevenlabs_api_key: '' }))
+      setForm((f) => ({ ...f, claude_api_key: '', openai_api_key: '', elevenlabs_api_key: '' }))
       refresh()
       setTimeout(() => setFeedback(null), 4000)
     } catch (err) {
@@ -427,6 +433,59 @@ export default function Settings() {
           </div>
         </Card>
 
+        {/* Proveedor de IA */}
+        <Card>
+          <div className="mb-4 flex items-start gap-2">
+            <Bot className="mt-0.5 h-4 w-4 text-lime-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">Motor de IA del asistente</h3>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Elige qué cerebro responde a tus pacientes. Puedes cambiar cuando quieras.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, ai_provider: 'claude' })}
+              className={`rounded-lg border px-4 py-3 text-left transition-all ${
+                form.ai_provider === 'claude'
+                  ? 'border-lime-500/50 bg-lime-500/10'
+                  : 'border-dark-500 bg-dark-700 hover:border-dark-400'
+              }`}
+            >
+              <p className={`text-sm font-semibold ${form.ai_provider === 'claude' ? 'text-lime-400' : 'text-white'}`}>
+                Claude (Anthropic)
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                Sonnet 4 · más empático, mejor para conversaciones largas.
+              </p>
+              <p className="mt-1.5 text-[10px] text-zinc-600">
+                {config?.has_claude_key ? '✓ Clave configurada' : 'Requiere API key'}
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, ai_provider: 'openai' })}
+              className={`rounded-lg border px-4 py-3 text-left transition-all ${
+                form.ai_provider === 'openai'
+                  ? 'border-lime-500/50 bg-lime-500/10'
+                  : 'border-dark-500 bg-dark-700 hover:border-dark-400'
+              }`}
+            >
+              <p className={`text-sm font-semibold ${form.ai_provider === 'openai' ? 'text-lime-400' : 'text-white'}`}>
+                ChatGPT (OpenAI)
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                GPT-4o · más directo, ágil, ampliamente conocido.
+              </p>
+              <p className="mt-1.5 text-[10px] text-zinc-600">
+                {config?.has_openai_key ? '✓ Clave configurada' : 'Requiere API key'}
+              </p>
+            </button>
+          </div>
+        </Card>
+
         {/* API Keys */}
         <Card>
           <div className="mb-4 flex items-center gap-2">
@@ -442,13 +501,25 @@ export default function Settings() {
           <div className="space-y-4">
             <div>
               <Input
-                label="Claude API Key"
+                label="Claude API Key (Anthropic)"
                 type="password"
                 value={form.claude_api_key}
                 onChange={(e) => setForm({ ...form, claude_api_key: e.target.value })}
                 placeholder={config?.has_claude_key ? `Actual: ${config.claude_api_key_masked}` : 'sk-ant-api03-...'}
               />
               {config?.has_claude_key && (
+                <p className="mt-1 text-xs text-lime-400/60">Clave configurada. Deja vacío para mantener la actual.</p>
+              )}
+            </div>
+            <div>
+              <Input
+                label="OpenAI API Key (ChatGPT)"
+                type="password"
+                value={form.openai_api_key}
+                onChange={(e) => setForm({ ...form, openai_api_key: e.target.value })}
+                placeholder={config?.has_openai_key ? `Actual: ${config.openai_api_key_masked}` : 'sk-...'}
+              />
+              {config?.has_openai_key && (
                 <p className="mt-1 text-xs text-lime-400/60">Clave configurada. Deja vacío para mantener la actual.</p>
               )}
             </div>

@@ -26,6 +26,8 @@ export interface Clinic {
   updated_at: string
 }
 
+export type AIProvider = 'claude' | 'openai'
+
 // ── Clinic config (configuración del asistente) ───────────
 export interface ClinicConfig {
   id: string
@@ -38,7 +40,9 @@ export interface ClinicConfig {
   schedule: WeeklySchedule
   custom_prompt: string
   escalate_on: string[]
+  ai_provider: AIProvider
   claude_key_enc: string | null
+  openai_key_enc: string | null
   elevenlabs_key_enc: string | null
   wa_connected: boolean
   wa_phone: string | null

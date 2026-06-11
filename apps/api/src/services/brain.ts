@@ -4,12 +4,11 @@
 //  Cada clínica usa su propia API key de Claude.
 // ============================================================
 
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
-import { decrypt } from './crypto.js'
-import { sendMessage, type WAMessage, type HistoryBatch } from './whatsapp.js'
+import { sendMessage, type WAMessage } from './whatsapp.js'
 import { scheduleFollowUps } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
+import { AIClient } from './ai-provider.js'
 import type {
   ClinicConfig,
   Lead,
@@ -167,9 +166,9 @@ FORMATO DE SALIDA OBLIGATORIO (JSON estricto, sin markdown, sin texto extra):
 Responde EXCLUSIVAMENTE con el JSON. Nada antes, nada después.`
 }
 
-// ── Analiza una imagen del paciente con Claude Vision ──
+// ── Analiza una imagen del paciente vía AIClient (Claude o GPT-4o) ──
 async function analyzeImage(
-  anthropic: Anthropic,
+  ai: AIClient,
   config: ClinicConfig,
   lead: Lead | null,
   imageBase64: string,
@@ -177,47 +176,19 @@ async function analyzeImage(
   caption: string,
 ): Promise<VisionAnalysis | null> {
   try {
-    const cleanMime = mimeType.split(';')[0]?.trim() ?? 'image/jpeg'
-    const validMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const
-    const finalMime = (validMimes as readonly string[]).includes(cleanMime)
-      ? cleanMime as typeof validMimes[number]
-      : 'image/jpeg'
-
     const userText = caption
       ? `El paciente envió esta imagen con el mensaje: "${caption}". Analízala clínicamente.`
       : 'El paciente envió esta imagen sin texto. Analízala clínicamente.'
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1200,
+    const raw = await ai.vision({
       system: buildVisionPrompt(config, lead),
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: finalMime,
-                data: imageBase64,
-              },
-            },
-            { type: 'text', text: userText },
-          ],
-        },
-      ],
+      userText,
+      image: { base64: imageBase64, mime: mimeType },
+      maxTokens: 1200,
     })
 
-    const raw = response.content
-      .filter(b => b.type === 'text')
-      .map(b => b.type === 'text' ? b.text : '')
-      .join('')
-      .trim()
-
-    // Limpia posibles fences markdown si Claude los agregó
+    // Limpia posibles fences markdown
     const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-
     const parsed = JSON.parse(json) as Omit<VisionAnalysis, 'analyzed_at'>
 
     return {
@@ -342,89 +313,6 @@ export async function persistRawMessage(waMsg: WAMessage): Promise<void> {
   }
 }
 
-// ── Persistir un BATCH de histórico de un solo chat ──
-// 1 upsert de lead + 1 upsert/select de conversación + 1 update con todos
-// los mensajes mergeados. Sin invocar IA. Reemplaza N×3 calls por solo 3.
-export async function persistHistoryBatch(batch: HistoryBatch): Promise<void> {
-  const { clinic_id, jid, messages } = batch
-  if (messages.length === 0) return
-
-  const first = messages[0]!
-  const last = messages[messages.length - 1]!
-
-  try {
-    // 1 upsert para el lead
-    const { data: lead } = await supabaseAdmin
-      .from('leads')
-      .upsert(
-        {
-          clinic_id,
-          phone: first.from_phone,
-          phone_wa_id: jid,
-          last_message_at: new Date(last.timestamp).toISOString(),
-        },
-        { onConflict: 'clinic_id,phone' },
-      )
-      .select('id')
-      .single<{ id: string }>()
-
-    if (!lead) return
-
-    // Conseguir conversación existente
-    let { data: conversation } = await supabaseAdmin
-      .from('conversations')
-      .select('id, messages')
-      .eq('clinic_id', clinic_id)
-      .eq('lead_id', lead.id)
-      .maybeSingle<{ id: string; messages: (Message & { wa_id?: string })[] }>()
-
-    if (!conversation) {
-      const { data: newConv } = await supabaseAdmin
-        .from('conversations')
-        .insert({ clinic_id, lead_id: lead.id, messages: [], context: {} })
-        .select('id, messages')
-        .single<{ id: string; messages: (Message & { wa_id?: string })[] }>()
-      conversation = newConv
-    }
-    if (!conversation) return
-
-    // Mergear: existentes + nuevos, dedupe por wa_id
-    const existingIds = new Set(
-      (conversation.messages ?? [])
-        .map((m) => m.wa_id)
-        .filter((id): id is string => !!id),
-    )
-
-    const newOnes: (Message & { wa_id?: string; source?: string })[] = messages
-      .filter((m) => m.message_id && !existingIds.has(m.message_id))
-      .map((m) => ({
-        role: m.direction === 'outgoing' ? 'assistant' : 'user',
-        content: m.content || (m.type === 'image' ? '[Foto]' : ''),
-        timestamp: new Date(m.timestamp).toISOString(),
-        type: m.type,
-        wa_id: m.message_id,
-        source: 'history',
-      }))
-
-    if (newOnes.length === 0) return
-
-    const merged = [...(conversation.messages ?? []), ...newOnes]
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .slice(-200) // tope global de mensajes por conversación
-
-    await supabaseAdmin
-      .from('conversations')
-      .update({ messages: merged })
-      .eq('id', conversation.id)
-
-    console.log(
-      `[Brain] Histórico persistido · clinic ${clinic_id} · ${first.from_phone} · ${newOnes.length} msgs nuevos`,
-    )
-  } catch (err) {
-    console.error(`[Brain] persistHistoryBatch error clinic ${clinic_id} ${jid}:`, err)
-  }
-}
-
 // ── Procesa un mensaje entrante completo ──
 export async function processMessage(waMsg: WAMessage): Promise<void> {
   const { clinic_id, from_phone, from_jid, content, type, timestamp } = waMsg
@@ -442,10 +330,15 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 2. Verificar que tiene API key de Claude configurada
-    if (!config.claude_key_enc) {
-      console.warn(`[Brain] Clinic ${clinic_id} no tiene API key de Claude configurada`)
-      // Enviar mensaje de error amigable al paciente no es ideal — escalar a humano
+    // 2. Inicializar el cliente de IA según el proveedor configurado
+    let ai: AIClient
+    try {
+      ai = new AIClient(config)
+    } catch (err) {
+      console.warn(
+        `[Brain] Clinic ${clinic_id} sin API key del proveedor seleccionado (${config.ai_provider}):`,
+        (err as Error).message,
+      )
       return
     }
 
@@ -502,20 +395,16 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       return
     }
 
-    // 5. Preparar cliente de Claude (lo usamos arriba si hay visión)
-    const claudeKey = decrypt(config.claude_key_enc)
-    const anthropic = new Anthropic({ apiKey: claudeKey })
-
-    // 5b. Si es imagen y el análisis clínico está activo → ejecutar Claude Vision
+    // 5. Si es imagen y el análisis clínico está activo → ejecutar visión
     let visionAnalysis: VisionAnalysis | null = null
     if (
       type === 'image' &&
       config.vision_enabled &&
       waMsg.media_data
     ) {
-      console.log(`[Brain] Analizando imagen clínica para clinic ${clinic_id}`)
+      console.log(`[Brain] Analizando imagen clínica (${ai.provider}) para clinic ${clinic_id}`)
       visionAnalysis = await analyzeImage(
-        anthropic,
+        ai,
         config,
         lead,
         waMsg.media_data,
@@ -602,7 +491,7 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       isFirstMessage,
       intent,
       visionAnalysis,
-      anthropic,
+      ai,
     })
 
     if (engineResult.matched) {
@@ -623,28 +512,21 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       // Lo usamos directamente para no perder la voz del odontólogo profesional.
       assistantText = visionAnalysis.patient_message
     } else {
-      // Llamar a Claude conversacional con el historial completo
+      // Llamar al proveedor conversacional con el historial completo
       const recentMessages = updatedMessages.slice(-20)
-      const claudeMessages: Anthropic.MessageParam[] = recentMessages.map(m => ({
+      const chatMessages = recentMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }))
 
-      const systemPrompt = buildSystemPrompt(config, lead)
-
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 400,  // WhatsApp: respuestas cortas
-        system: systemPrompt,
-        messages: claudeMessages,
+      const completion = await ai.chat({
+        system: buildSystemPrompt(config, lead),
+        messages: chatMessages,
+        maxTokens: 400,
       })
 
-      assistantText = response.content
-        .filter(b => b.type === 'text')
-        .map(b => b.type === 'text' ? b.text : '')
-        .join('')
-
-      tokensUsed = response.usage.input_tokens + response.usage.output_tokens
+      assistantText = completion.text
+      tokensUsed = completion.tokens_in + completion.tokens_out
     }
 
     // 10. Guardar respuesta del asistente

@@ -33,9 +33,12 @@ interface Config {
   vision_focus: string[]
   vision_auto_suggest: boolean
   vision_disclaimer: string
+  ai_provider: 'claude' | 'openai'
   has_claude_key: boolean
+  has_openai_key: boolean
   has_elevenlabs_key: boolean
   claude_api_key_masked: string | null
+  openai_api_key_masked: string | null
   elevenlabs_api_key_masked: string | null
 }
 

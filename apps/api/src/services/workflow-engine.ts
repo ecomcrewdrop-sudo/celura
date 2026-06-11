@@ -7,8 +7,8 @@
 //  conversación libre.
 // ============================================================
 
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import type { AIClient } from './ai-provider.js'
 import type {
   ClinicConfig,
   Lead,
@@ -40,7 +40,7 @@ export interface EngineContext {
   isFirstMessage: boolean
   intent: string
   visionAnalysis: VisionAnalysis | null
-  anthropic: Anthropic
+  ai: AIClient
 }
 
 export interface EngineFollowUp {
@@ -208,18 +208,16 @@ REGLAS:
         role: m.role,
         content: m.content,
       }))
-      const messages: Anthropic.MessageParam[] = recent.length
+      const messages = recent.length
         ? recent
-        : [{ role: 'user', content: ctx.waMsg.content || '[imagen]' }]
+        : [{ role: 'user' as const, content: ctx.waMsg.content || '[imagen]' }]
 
-      const resp = await ctx.anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 250,
+      const resp = await ctx.ai.chat({
         system,
         messages,
+        maxTokens: 250,
       })
-      const text = resp.content.filter((b) => b.type === 'text').map((b) => b.type === 'text' ? b.text : '').join('')
-      return { response: text, stop: false }
+      return { response: resp.text, stop: false }
     }
 
     case 'ask_qualifying': {
