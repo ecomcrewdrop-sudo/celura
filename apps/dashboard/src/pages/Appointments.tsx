@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { api } from '@/lib/api'
+import { useRealtimeTopic } from '@/hooks/useRealtimeRefresh'
 import { useClinic } from '@/hooks/useClinic'
 import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
@@ -215,8 +216,8 @@ export default function Appointments() {
   const [weekStart, setWeekStart] = useState<Date>(startOfWeek(new Date()))
 
   // ── Fetch citas + leads ─────────────────────────────────
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [aRes, lRes] = await Promise.all([
       api.get<{ appointments: Appointment[]; total: number }>(
         `/api/appointments?limit=200&order=upcoming`,
@@ -229,10 +230,14 @@ export default function Appointments() {
       lRes.data.leads.forEach((l) => map.set(l.id, l))
       setLeadsMap(map)
     }
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Realtime: nueva cita, status cambia, nuevo lead → refetch silent.
+  useRealtimeTopic('appointments-changed', () => fetchData(true))
+  useRealtimeTopic('leads-changed', () => fetchData(true))
 
   // ── Filtrado client-side ────────────────────────────────
   const filtered = useMemo(() => {

@@ -10,6 +10,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { useRealtimeTopic } from '@/hooks/useRealtimeRefresh'
 import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Badge from '@/components/Badge'
@@ -197,8 +198,8 @@ export default function Leads() {
   }, [search])
 
   // Fetch
-  const fetchLeads = useCallback(async () => {
-    setLoading(true)
+  const fetchLeads = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const params = new URLSearchParams({ limit: '200', order: sort })
     // El backend exige caracteres validos para search; ya filtramos en frontend
     if (debouncedSearch && /^[\p{L}\p{N}\s@+\-]+$/u.test(debouncedSearch)) {
@@ -211,10 +212,13 @@ export default function Leads() {
       setLeads(res.data.leads)
       setTotal(res.data.total)
     }
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [debouncedSearch, stageFilter, urgencyFilter, sort])
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
+
+  // Realtime: nuevo paciente, cambio de stage/score, nuevo mensaje → refetch silent.
+  useRealtimeTopic('leads-changed', () => fetchLeads(true))
 
   // ── Stats hero ──────────────────────────────────────────
   const stats = useMemo(() => {

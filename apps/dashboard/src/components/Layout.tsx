@@ -8,11 +8,16 @@ import NotificationsBell from './NotificationsBell'
 import NotificationsDrawer from './NotificationsDrawer'
 import NotificationsToastStack from './NotificationsToastStack'
 import WelcomeModal from './WelcomeModal'
+import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 
 export default function Layout() {
   const [open, setOpen] = useState(false)
   const location = useLocation()
   const { clinic } = useClinic()
+
+  // Conexión Realtime global: las páginas escuchan eventos por window
+  // (ver useRealtimeRefresh) y se auto-refrescan cuando hay cambios.
+  useRealtimeRefresh()
 
   // Close drawer on navigation
   useEffect(() => {

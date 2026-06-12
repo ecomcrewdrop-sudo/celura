@@ -12,6 +12,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClinic } from '@/hooks/useClinic'
+import { useRealtimeTopic } from '@/hooks/useRealtimeRefresh'
 import Card from '@/components/Card'
 import {
   Users,
@@ -123,8 +124,8 @@ export default function DashboardHome() {
   const [waStatus, setWaStatus] = useState<WAStatus | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
+  const fetchAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [leadsRes, apptsRes, waRes] = await Promise.all([
       api.get<{ leads: Lead[] }>('/api/leads?limit=200&order=recent'),
       api.get<{ appointments: Appointment[] }>('/api/appointments?limit=200&order=upcoming'),
@@ -133,10 +134,14 @@ export default function DashboardHome() {
     if (leadsRes.data) setAllLeads(leadsRes.data.leads)
     if (apptsRes.data) setAllAppts(apptsRes.data.appointments)
     if (waRes.data) setWaStatus(waRes.data)
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Realtime: cualquier cambio en leads/conversations/appointments → refetch
+  // silencioso (sin loader, no parpadea la UI). El hook está debounceado.
+  useRealtimeTopic('any-changed', () => fetchAll(true))
 
   // Refrescar status WA cada 30s sin bloquear UI
   useEffect(() => {

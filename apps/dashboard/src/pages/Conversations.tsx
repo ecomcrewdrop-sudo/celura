@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { api } from '@/lib/api'
-import { supabase } from '@/lib/supabase'
 import { useClinic } from '@/hooks/useClinic'
+import { useRealtimeTopic } from '@/hooks/useRealtimeRefresh'
 import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Badge from '@/components/Badge'
@@ -396,26 +396,18 @@ export default function Conversations() {
     return () => clearInterval(id)
   }, [loadList, loadDetail, docVisible])
 
-  // ── Realtime ──
+  // ── Realtime via hook global ──
+  // El hook useRealtimeRefresh (montado en Layout) mantiene UNA conexión
+  // a Supabase Realtime y nos avisa por eventos de window. Acá solo
+  // escuchamos los topics que afectan a esta página.
+  useRealtimeTopic('conversations-changed', () => {
+    loadList()
+    if (openLeadIdRef.current) loadDetail(openLeadIdRef.current, true)
+  })
+  // Asumimos "en vivo" si tenemos clinic_id — el hook global maneja la conexión.
   useEffect(() => {
-    if (!clinic?.id) return
-    const channel = supabase
-      .channel(`conversations:${clinic.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'conversations', filter: `clinic_id=eq.${clinic.id}` },
-        (payload) => {
-          loadList()
-          const changed = (payload.new ?? payload.old) as { lead_id?: string } | null
-          if (openLeadIdRef.current && changed?.lead_id === openLeadIdRef.current) {
-            loadDetail(openLeadIdRef.current, true)
-          }
-        },
-      )
-      .subscribe((status) => setLiveConnected(status === 'SUBSCRIBED'))
-
-    return () => { supabase.removeChannel(channel) }
-  }, [clinic?.id, loadList, loadDetail])
+    setLiveConnected(!!clinic?.id)
+  }, [clinic?.id])
 
   // ── Auto-scroll + sonido ──
   useEffect(() => {
