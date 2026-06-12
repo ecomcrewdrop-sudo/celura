@@ -123,3 +123,31 @@ body {
 .animate-sheet-up {
   animation: sheetUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* Notifications */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down { animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes slideLeft {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-left { animation: slideLeft 0.32s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@keyframes bellShake {
+  0%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-12deg); }
+  20%, 40%, 60% { transform: rotate(12deg); }
+  70% { transform: rotate(-6deg); }
+  80% { transform: rotate(6deg); }
+  90% { transform: rotate(0); }
+}
+.animate-bell { animation: bellShake 1.4s ease-in-out infinite; transform-origin: top center; }

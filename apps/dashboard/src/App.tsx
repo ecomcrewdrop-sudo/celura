@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { ClinicProvider, useClinic } from '@/hooks/useClinic'
 import { AdminProvider } from '@/hooks/useAdmin'
+import { NotificationsProvider } from '@/hooks/useNotifications'
 import Layout from '@/components/Layout'
 import Login from '@/pages/Login'
 import Onboarding from '@/pages/Onboarding'
@@ -12,6 +13,7 @@ import Conversations from '@/pages/Conversations'
 import WhatsAppPage from '@/pages/WhatsApp'
 import Workflows from '@/pages/Workflows'
 import Settings from '@/pages/Settings'
+import NotificationPreferences from '@/pages/NotificationPreferences'
 import AdminLayout from '@/components/admin/AdminLayout'
 import AdminOverview from '@/pages/admin/AdminOverview'
 import AdminClinics from '@/pages/admin/AdminClinics'
@@ -93,7 +95,9 @@ export default function App() {
                 <AuthGuard>
                   <ClinicProvider>
                     <ClinicGuard>
-                      <Layout />
+                      <NotificationsProvider>
+                        <Layout />
+                      </NotificationsProvider>
                     </ClinicGuard>
                   </ClinicProvider>
                 </AuthGuard>
@@ -106,6 +110,7 @@ export default function App() {
               <Route path="whatsapp" element={<WhatsAppPage />} />
               <Route path="workflows" element={<Workflows />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="notifications/preferences" element={<NotificationPreferences />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

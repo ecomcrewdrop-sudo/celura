@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import Avatar from './Avatar'
 import ProfileModal from './ProfileModal'
+import NotificationsBell from './NotificationsBell'
 import { trialLabel as daysLeftLabel } from '@/lib/trial'
 
 const links = [
@@ -84,13 +85,18 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Header row: logo + close (mobile only) */}
         <div className="safe-pt flex items-center justify-between px-5 py-5">
           <img src="/logo-dark.svg" alt="Celura" className="h-8" />
-          <button
-            onClick={onClose}
-            className="touch-target -mr-2 flex items-center justify-center rounded-xl px-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200 lg:hidden"
-            aria-label="Cerrar menú"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <div className="hidden lg:block">
+              <NotificationsBell />
+            </div>
+            <button
+              onClick={onClose}
+              className="touch-target -mr-2 flex items-center justify-center rounded-xl px-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200 lg:hidden"
+              aria-label="Cerrar menú"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* User card → dispara dropdown */}

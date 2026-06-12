@@ -4,6 +4,8 @@ import { Menu } from 'lucide-react'
 import Sidebar from './Sidebar'
 import { useClinic } from '@/hooks/useClinic'
 import Avatar from './Avatar'
+import NotificationsBell from './NotificationsBell'
+import NotificationsToastStack from './NotificationsToastStack'
 
 export default function Layout() {
   const [open, setOpen] = useState(false)
@@ -55,13 +57,16 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <img src="/logo-dark.svg" alt="Celura" className="h-6" />
           </div>
-          <NavLink
-            to="/settings"
-            className="touch-target -mr-2 flex items-center justify-center rounded-xl px-2 text-zinc-400"
-            aria-label="Cuenta"
-          >
-            <Avatar name={displayName} size="sm" />
-          </NavLink>
+          <div className="-mr-2 flex items-center gap-1">
+            <NotificationsBell />
+            <NavLink
+              to="/settings"
+              className="touch-target flex items-center justify-center rounded-xl px-2 text-zinc-400"
+              aria-label="Cuenta"
+            >
+              <Avatar name={displayName} size="sm" />
+            </NavLink>
+          </div>
         </header>
 
         <div className="safe-px mx-auto max-w-[1600px] px-4 py-4 sm:px-6 sm:py-6 lg:max-w-[1600px] lg:px-8 lg:py-8">
@@ -71,6 +76,9 @@ export default function Layout() {
         {/* Bottom safe-area filler for iPhone home indicator */}
         <div className="safe-pb" />
       </main>
+
+      {/* Toasts globales de notifs realtime */}
+      <NotificationsToastStack />
     </div>
   )
 }
