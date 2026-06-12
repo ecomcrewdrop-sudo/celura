@@ -39,6 +39,7 @@ import {
   ChevronRight,
   CircleDashed,
 } from 'lucide-react'
+import SetupBanner from '@/components/SetupBanner'
 
 // ── Tipos ────────────────────────────────────────────────────
 interface Lead {
@@ -277,6 +278,9 @@ export default function DashboardHome() {
 
   return (
     <div className="animate-fade-in space-y-5">
+      {/* ═══════════════ SETUP GUIDE BANNER ═══════════════ */}
+      <SetupBanner />
+
       {/* ═══════════════ HERO ═══════════════ */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>

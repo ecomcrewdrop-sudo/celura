@@ -13,6 +13,7 @@ import Conversations from '@/pages/Conversations'
 import WhatsAppPage from '@/pages/WhatsApp'
 import Workflows from '@/pages/Workflows'
 import Settings from '@/pages/Settings'
+import Setup from '@/pages/Setup'
 import NotificationPreferences from '@/pages/NotificationPreferences'
 import AdminLayout from '@/components/admin/AdminLayout'
 import AdminOverview from '@/pages/admin/AdminOverview'
@@ -110,6 +111,7 @@ export default function App() {
               <Route path="whatsapp" element={<WhatsAppPage />} />
               <Route path="workflows" element={<Workflows />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="setup" element={<Setup />} />
               <Route path="notifications/preferences" element={<NotificationPreferences />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

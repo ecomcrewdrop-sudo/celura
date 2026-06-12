@@ -24,6 +24,8 @@ import Avatar from './Avatar'
 import ProfileModal from './ProfileModal'
 import NotificationsBell from './NotificationsBell'
 import { trialLabel as daysLeftLabel } from '@/lib/trial'
+import { useSetupSteps } from '@/hooks/useSetupSteps'
+import { Sparkles } from 'lucide-react'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -46,6 +48,7 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const { signOut, user } = useAuth()
   const { clinic, config } = useClinic()
   const { isAdmin } = useAdmin()
+  const { pendingRequiredCount, isComplete: setupComplete } = useSetupSteps()
   const [menuOpen, setMenuOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalTab, setModalTab] = useState<Tab>('profile')
@@ -226,6 +229,27 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
 
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
+          {!setupComplete && (
+            <NavLink
+              to="/setup"
+              className={({ isActive }) =>
+                clsx(
+                  'group relative mb-1 flex items-center gap-3 rounded-xl border px-3 py-3 text-[14px] font-medium transition-all duration-200 lg:py-2.5 lg:text-[13px]',
+                  isActive
+                    ? 'border-lime-400/30 bg-lime-400/[0.08] text-lime-300'
+                    : 'border-lime-400/15 bg-lime-400/[0.04] text-lime-200 hover:border-lime-400/25 hover:bg-lime-400/[0.07]',
+                )
+              }
+            >
+              <Sparkles className="h-[18px] w-[18px] shrink-0 text-lime-300" />
+              <span className="flex-1">Guía de configuración</span>
+              {pendingRequiredCount > 0 && (
+                <span className="rounded-full bg-lime-400 px-1.5 py-0.5 text-[10px] font-bold leading-none text-dark-900">
+                  {pendingRequiredCount}
+                </span>
+              )}
+            </NavLink>
+          )}
           {links.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}

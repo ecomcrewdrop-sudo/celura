@@ -7,6 +7,7 @@ import Avatar from './Avatar'
 import NotificationsBell from './NotificationsBell'
 import NotificationsDrawer from './NotificationsDrawer'
 import NotificationsToastStack from './NotificationsToastStack'
+import WelcomeModal from './WelcomeModal'
 
 export default function Layout() {
   const [open, setOpen] = useState(false)
@@ -83,6 +84,9 @@ export default function Layout() {
 
       {/* Toasts globales de notifs realtime */}
       <NotificationsToastStack />
+
+      {/* Modal de bienvenida (primer login) */}
+      <WelcomeModal />
     </div>
   )
 }
