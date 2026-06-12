@@ -12,6 +12,7 @@ import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import { AIClient } from './ai-provider.js'
 import { trackErrorSync } from './error-tracker.js'
 import { notify } from './notifications.js'
+import { uploadChatMedia } from './chat-media.js'
 import type {
   ClinicConfig,
   Lead,
@@ -545,6 +546,21 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       userContentForHistory = content
     }
 
+    // 6b. Si es imagen/audio, subir el media al storage para que el panel
+    //     pueda mostrarlo. Best-effort: si falla seguimos sin media_url.
+    let mediaUrl: string | undefined
+    if ((type === 'image' || type === 'audio') && waMsg.media_data) {
+      const url = await uploadChatMedia(
+        clinic_id,
+        waMsg.media_data,
+        waMsg.media_mimetype ?? (type === 'image' ? 'image/jpeg' : 'audio/ogg'),
+      )
+      if (url) {
+        mediaUrl = url
+        console.log(`[Brain] ${type} subido a storage para clinic ${clinic_id}`)
+      }
+    }
+
     const userMessage: Message & { wa_id?: string } = {
       role: 'user',
       content: userContentForHistory,
@@ -552,6 +568,7 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       type,
       analyzed: !!visionAnalysis,
       wa_id: waMsg.message_id,
+      ...(mediaUrl ? { media_url: mediaUrl } : {}),
     }
 
     // Evitar duplicados si Baileys reemite el mismo wa_id

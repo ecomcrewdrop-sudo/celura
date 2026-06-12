@@ -90,6 +90,8 @@ interface Message {
   source?: 'history' | 'outgoing'
   manual?: boolean
   analyzed?: boolean
+  /** URL pública del media (imagen/audio) subido al storage. */
+  media_url?: string
   /** false = el mensaje no llegó al WhatsApp del paciente (sesión caída). */
   delivered?: boolean
   delivery_error?: string
@@ -119,7 +121,10 @@ interface ConvoDetail {
   }
 }
 
-const POLL_INTERVAL_MS = 12_000
+// Polling activo (pestaña visible). Realtime de Supabase hace la mayor parte
+// del trabajo; este es solo un safety net. 5s da sensación "flash" sin
+// martillar al API.
+const POLL_INTERVAL_MS = 5_000
 
 const STAGES: { value: Stage | 'all'; label: string }[] = [
   { value: 'all', label: 'Todas' },
@@ -275,6 +280,15 @@ export default function Conversations() {
   const searchRef = useRef<HTMLInputElement | null>(null)
   const lastUserTimestampRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Cache local de detalles por leadId. Permite render instantáneo al abrir
+  // una conversación que ya visitamos en esta sesión — el fetch corre en
+  // silent y actualiza si hay nuevos mensajes.
+  const detailCacheRef = useRef<Map<string, ConvoDetail>>(new Map())
+  // ¿La pestaña está visible? Si está oculta pausamos el polling para no
+  // martillar API en background.
+  const [docVisible, setDocVisible] = useState<boolean>(
+    typeof document !== 'undefined' ? document.visibilityState === 'visible' : true,
+  )
 
   // ── Carga lista ──
   const loadList = useCallback(async () => {
@@ -309,15 +323,20 @@ export default function Conversations() {
     if (!silent) setDetailLoading(true)
     const r = await api.get<ConvoDetail>(`/api/leads/${leadId}/conversation`)
     if (r.data) {
-      setDetail(r.data)
-      setNotesDraft(r.data.lead.notes ?? '')
-      setNameDraft(r.data.lead.name ?? '')
-      setTreatmentDraft(r.data.lead.treatment_interest ?? '')
+      detailCacheRef.current.set(leadId, r.data)
+      // Solo actualizamos el detail visible si seguimos en el mismo lead;
+      // el usuario puede haber cambiado de conv mientras el fetch viajaba.
+      if (openLeadIdRef.current === leadId) {
+        setDetail(r.data)
+        setNotesDraft(r.data.lead.notes ?? '')
+        setNameDraft(r.data.lead.name ?? '')
+        setTreatmentDraft(r.data.lead.treatment_interest ?? '')
+      }
     }
     if (!silent) setDetailLoading(false)
   }, [])
 
-  const openConvo = async (leadId: string) => {
+  const openConvo = (leadId: string) => {
     openLeadIdRef.current = leadId
     setSendError(null)
     setDraft('')
@@ -325,20 +344,57 @@ export default function Conversations() {
     setEditingTreatment(false)
     setShowTemplates(false)
     setMobileView('thread')
-    await loadDetail(leadId)
+
+    // Render instantáneo si tenemos cache: el doctor ve la conv al toque
+    // mientras el fetch reciente corre en silent.
+    const cached = detailCacheRef.current.get(leadId)
+    if (cached) {
+      setDetail(cached)
+      setNotesDraft(cached.lead.notes ?? '')
+      setNameDraft(cached.lead.name ?? '')
+      setTreatmentDraft(cached.lead.treatment_interest ?? '')
+      loadDetail(leadId, true) // silent refresh
+    } else {
+      loadDetail(leadId)
+    }
+
     api.post(`/api/leads/${leadId}/conversation/read`, { read: true }).catch(() => {})
     // Optimistic: marcar localmente como leída
     setConvos((cs) => cs.map((c) => (c.lead_id === leadId ? { ...c, read_at: new Date().toISOString() } : c)))
   }
 
+  // Prefetch al hacer hover sobre un item de la lista — cuando el doctor
+  // hace click la conv ya está cacheada y se abre instantánea.
+  const prefetchDetail = useCallback((leadId: string) => {
+    if (detailCacheRef.current.has(leadId)) return
+    loadDetail(leadId, true)
+  }, [loadDetail])
+
+  // ── Visibility tracking ──
+  // Pausar polling cuando la pestaña no es visible; refrescar inmediato
+  // cuando vuelve (el doctor probablemente revisó el teléfono mientras tanto).
+  useEffect(() => {
+    const onVis = () => {
+      const visible = document.visibilityState === 'visible'
+      setDocVisible(visible)
+      if (visible) {
+        loadList()
+        if (openLeadIdRef.current) loadDetail(openLeadIdRef.current, true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [loadList, loadDetail])
+
   // ── Polling ──
   useEffect(() => {
+    if (!docVisible) return
     const id = setInterval(() => {
       loadList()
       if (openLeadIdRef.current) loadDetail(openLeadIdRef.current, true)
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [loadList, loadDetail])
+  }, [loadList, loadDetail, docVisible])
 
   // ── Realtime ──
   useEffect(() => {
@@ -567,7 +623,13 @@ export default function Conversations() {
     const isHistoric = msg.source === 'history'
     const isDoctorPhone = msg.source === 'outgoing' && !msg.manual
     const isManual = !!msg.manual
-    const isImage = msg.type === 'image' && /^https?:\/\//.test(msg.content)
+    // Imagen mostrable: priorizamos media_url (subida a storage). Como
+    // fallback aceptamos un content que sea URL absoluta (legacy).
+    const imageSrc = msg.type === 'image'
+      ? (msg.media_url || (/^https?:\/\//.test(msg.content) ? msg.content : null))
+      : null
+    const isImage = !!imageSrc
+    const audioSrc = msg.type === 'audio' ? msg.media_url ?? null : null
     const isAudio = msg.type === 'audio'
     // Solo aplica a salientes: undefined = legacy/asumido entregado, false = falló
     const isUndelivered = isAssistant && msg.delivered === false
@@ -605,19 +667,42 @@ export default function Conversations() {
                 <Sparkles className="h-3 w-3" /> Analizado por IA
               </div>
             )}
-            {isImage ? (
-              <button
-                onClick={() => setLightbox(msg.content)}
-                className="block overflow-hidden rounded-lg"
-                title="Abrir imagen"
-              >
-                <img src={msg.content} alt="adjunto" className="max-h-56 max-w-[260px] rounded-lg" />
-              </button>
-            ) : isAudio ? (
-              <div className="flex items-center gap-2 text-zinc-300">
-                <Mic className="h-3.5 w-3.5 text-lime-400" />
-                <span className="text-xs">Nota de voz</span>
+            {isImage && imageSrc ? (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setLightbox(imageSrc)}
+                  className="block overflow-hidden rounded-lg bg-dark-700"
+                  title="Abrir imagen"
+                >
+                  <img
+                    src={imageSrc}
+                    alt="Foto del paciente"
+                    loading="lazy"
+                    decoding="async"
+                    className="max-h-56 max-w-[260px] rounded-lg object-cover transition-transform duration-200 hover:scale-[1.02]"
+                  />
+                </button>
+                {/* Si el content trae el análisis de IA, lo mostramos abajo de la foto */}
+                {msg.content && !/^https?:\/\//.test(msg.content) && (
+                  <p className="whitespace-pre-wrap break-words text-[12px] text-zinc-300">
+                    {msg.content}
+                  </p>
+                )}
               </div>
+            ) : isAudio ? (
+              audioSrc ? (
+                <audio
+                  controls
+                  preload="none"
+                  src={audioSrc}
+                  className="h-9 max-w-[260px]"
+                />
+              ) : (
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Mic className="h-3.5 w-3.5 text-lime-400" />
+                  <span className="text-xs">Nota de voz</span>
+                </div>
+              )
             ) : (
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
             )}
@@ -758,7 +843,7 @@ export default function Conversations() {
               className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
                 liveConnected ? 'bg-lime-500/15 text-lime-300' : 'bg-zinc-700/40 text-zinc-400'
               }`}
-              title={liveConnected ? 'Supabase Realtime activo' : 'Polling 12s de respaldo'}
+              title={liveConnected ? 'Supabase Realtime activo' : 'Polling 5s de respaldo'}
             >
               {liveConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
               {liveConnected ? 'En vivo' : 'Polling'}
@@ -917,6 +1002,8 @@ export default function Conversations() {
                     <button
                       key={c.id}
                       onClick={() => openConvo(c.lead_id)}
+                      onMouseEnter={() => prefetchDetail(c.lead_id)}
+                      onFocus={() => prefetchDetail(c.lead_id)}
                       className={`block w-full px-4 py-3 text-left transition-colors hover:bg-dark-700 ${
                         selected ? 'bg-dark-700' : ''
                       }`}
