@@ -204,6 +204,21 @@ export async function startSession(
       sessionStatus.set(clinicId, 'disconnected')
       waEvents.emit(`status:${clinicId}`, 'disconnected')
 
+      // ── Sincronizar Supabase: si NO va a reconectar, marcar wa_connected=false
+      //     para que el panel del doctor lo muestre desconectado y la guía
+      //     de setup vuelva a empujar al paso "Conectar WhatsApp". Si va a
+      //     reconectar solo, dejamos el flag en true (es un blip transitorio).
+      if (!shouldReconnect) {
+        try {
+          await supabaseAdmin
+            .from('clinic_config')
+            .update({ wa_connected: false })
+            .eq('clinic_id', clinicId)
+        } catch (err) {
+          console.error(`[WA] No se pudo persistir wa_connected=false para ${clinicId}:`, err)
+        }
+      }
+
       // ── Notificación al doctor (email + in-app) ──
       // Solo cuando es logout real (no si va a reconectar solo).
       // Evita ruido si la conexión rebota cada minuto.
@@ -425,6 +440,11 @@ function phoneToJid(phone: string): string {
 /**
  * Envía un mensaje de texto a un número (un intento, sin retry).
  * Usar `sendMessageWithRetry` para el flujo de producción.
+ *
+ * Nota: Baileys a veces resuelve `sendMessage` sin lanzar aunque la
+ * conexión esté caída (silently swallowed). Por eso comprobamos
+ * `sessionStatus` antes de intentar — preferimos fallar rápido y
+ * que el caller persista `delivered: false` que mentir.
  */
 export async function sendMessage(
   clinicId: string,
@@ -437,8 +457,21 @@ export async function sendMessage(
     return false
   }
 
+  const status = sessionStatus.get(clinicId)
+  if (status !== 'connected') {
+    console.error(
+      `[WA] Sesión existe pero no está conectada (status=${status ?? 'unknown'}) para clinic ${clinicId} — rechazando envío`,
+    )
+    return false
+  }
+
   try {
-    await sock.sendMessage(phoneToJid(toPhone), { text })
+    const result = await sock.sendMessage(phoneToJid(toPhone), { text })
+    // Baileys devuelve undefined si la cola no aceptó el mensaje
+    if (!result?.key?.id) {
+      console.error(`[WA] sendMessage devolvió sin key.id para ${toPhone} — no se entregó`)
+      return false
+    }
     return true
   } catch (err) {
     console.error(`[WA] Error enviando mensaje a ${toPhone}:`, err)
