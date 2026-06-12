@@ -73,11 +73,39 @@ const pendingQRs = new Map<string, string>()
 // Map de status: clinic_id → 'connecting' | 'qr_ready' | 'connected' | 'disconnected'
 const sessionStatus = new Map<string, string>()
 // Map de envíos pendientes de ACK: messageId → resolver
-// Cuando Baileys despacha de verdad un mensaje OUTGOING dispara messages.upsert
-// con type='notify'. Si llega el ACK dentro del timeout, resolvemos true.
-// Si NO llega (silent buffer / session zombie), resolvemos false.
+// Baileys despacha el ACK de dos formas:
+//  · messages.upsert(notify) con key.fromMe=true → echo local del envío
+//  · messages.update con status=1/2/3/4 → confirmación del servidor de WA
+// Escuchamos AMBOS — el primero que llegue resuelve el envío como entregado.
+// Si NO llega ninguno en SEND_ACK_TIMEOUT_MS resolvemos false.
 const pendingSendAcks = new Map<string, (delivered: boolean) => void>()
-const SEND_ACK_TIMEOUT_MS = 8_000
+const SEND_ACK_TIMEOUT_MS = 4_000
+
+// Contador rolling de fallos consecutivos por clínica. Si supera el umbral,
+// asumimos session zombie y disparamos forceReconnect automático.
+const consecutiveSendFails = new Map<string, number>()
+const AUTO_RECONNECT_FAIL_THRESHOLD = 3
+const reconnectInFlight = new Set<string>()
+
+// Cache de JID por (clinic, phone). Crítico para responder al MISMO JID
+// que envió el inbound — si el paciente vino por @lid, debemos contestar
+// a @lid; si vino por @s.whatsapp.net, a @s.whatsapp.net. Reconstruir el
+// JID a partir del teléfono falla silenciosamente cuando el formato no
+// coincide y Baileys descarta el envío sin error.
+const jidByPhone = new Map<string, Map<string, string>>()
+
+function rememberJid(clinicId: string, phone: string, jid: string): void {
+  let inner = jidByPhone.get(clinicId)
+  if (!inner) {
+    inner = new Map<string, string>()
+    jidByPhone.set(clinicId, inner)
+  }
+  inner.set(phone, jid)
+}
+
+function lookupJid(clinicId: string, phone: string): string | null {
+  return jidByPhone.get(clinicId)?.get(phone) ?? null
+}
 
 const sessionsRoot = process.env['WA_SESSIONS_PATH'] ?? './sessions'
 const logger = pino({ level: 'silent' }) // silenciar logs de Baileys en producción
@@ -345,13 +373,16 @@ export async function startSession(
 
       if (waMsg.direction === 'incoming') {
         console.log(`[WA] In  ← ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
+        // Cachear el JID exacto del que viene el inbound — al responder
+        // usaremos este mismo JID para evitar el bug del @lid vs @s.whatsapp.net.
+        if (msg.key.remoteJid) {
+          rememberJid(clinicId, waMsg.from_phone, msg.key.remoteJid)
+        }
         waEvents.emit('message', waMsg)              // brain procesa y responde
       } else {
         console.log(`[WA] Out → ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
-        // ── Resolver el ACK del envío correspondiente (si hay alguno esperando) ──
-        // Baileys garantiza que cuando un mensaje saliente REALMENTE entra a su
-        // pipeline de envío, emite messages.upsert(notify) con la key del mensaje.
-        // Si no llega ese upsert dentro del timeout, sendMessage devuelve false.
+        // Echo local del envío — Baileys lo emite cuando un mensaje fromMe
+        // entra a su pipeline. Resuelve el ACK pendiente si hay uno.
         const ackId = msg.key.id
         if (ackId) {
           const resolver = pendingSendAcks.get(ackId)
@@ -361,6 +392,27 @@ export async function startSession(
           }
         }
         waEvents.emit('message:outgoing', waMsg)     // solo persistir
+      }
+    }
+  })
+
+  // ── ACK por cambio de status (server-side) ──
+  // messages.update se dispara cuando WhatsApp confirma del servidor el envío.
+  // status 1 = pending, 2 = server ACK, 3 = delivered, 4 = read.
+  // Resolver el ACK aquí cubre el caso en que upsert(notify) NO se dispara
+  // para ciertos mensajes fromMe en algunas versiones de Baileys.
+  sock.ev.on('messages.update', async (updates) => {
+    for (const u of updates) {
+      const ackId = u.key?.id
+      if (!ackId) continue
+      const status = u.update?.status
+      // status >= 1 (PENDING) ya significa que entró al pipeline de WA
+      if (status && status >= 1) {
+        const resolver = pendingSendAcks.get(ackId)
+        if (resolver) {
+          pendingSendAcks.delete(ackId)
+          resolver(true)
+        }
       }
     }
   })
@@ -485,16 +537,55 @@ export async function sendMessage(
     return false
   }
 
+  // Resolver el JID con prioridad:
+  //  1) Cache en memoria (poblado desde inbound del mismo paciente).
+  //  2) Tabla leads.phone_wa_id (persiste entre reinicios del servidor).
+  //  3) sock.onWhatsApp() — WhatsApp nos devuelve el JID canónico.
+  //  4) phoneToJid() — fallback final, asume @s.whatsapp.net.
+  // Esto evita el bug donde un paciente conectado por @lid recibía el envío
+  // a un JID @s.whatsapp.net inválido y Baileys lo descartaba silenciosamente.
+  let targetJid = lookupJid(clinicId, toPhone)
+  if (!targetJid) {
+    try {
+      const { data: lead } = await supabaseAdmin
+        .from('leads')
+        .select('phone_wa_id')
+        .eq('clinic_id', clinicId)
+        .eq('phone', toPhone)
+        .maybeSingle<{ phone_wa_id: string | null }>()
+      if (lead?.phone_wa_id) {
+        targetJid = lead.phone_wa_id
+        rememberJid(clinicId, toPhone, lead.phone_wa_id)
+      }
+    } catch {
+      // best-effort: si la lookup falla seguimos al fallback
+    }
+  }
+  if (!targetJid) {
+    try {
+      const probe = await sock.onWhatsApp(toPhone.replace('+', ''))
+      const found = probe?.[0]
+      if (found?.exists && found.jid) {
+        targetJid = found.jid
+        rememberJid(clinicId, toPhone, found.jid)
+        console.log(`[WA] JID resuelto via onWhatsApp para ${toPhone} → ${found.jid}`)
+      }
+    } catch (err) {
+      console.warn(`[WA] onWhatsApp falló para ${toPhone}: ${(err as Error).message}`)
+    }
+  }
+  if (!targetJid) targetJid = phoneToJid(toPhone)
+
   let messageId: string | undefined
   try {
-    const result = await sock.sendMessage(phoneToJid(toPhone), { text })
+    const result = await sock.sendMessage(targetJid, { text })
     messageId = result?.key?.id ?? undefined
     if (!messageId) {
-      console.error(`[WA] sendMessage devolvió sin key.id para ${toPhone} — no se entregó`)
+      console.error(`[WA] sendMessage devolvió sin key.id para ${toPhone} (jid=${targetJid}) — no se entregó`)
       return false
     }
   } catch (err) {
-    console.error(`[WA] Error enviando mensaje a ${toPhone}:`, err)
+    console.error(`[WA] Error enviando mensaje a ${toPhone} (jid=${targetJid}):`, err)
     return false
   }
 
@@ -524,6 +615,25 @@ export async function sendMessage(
 
   if (delivered) {
     console.log(`[WA] ACK confirmado para ${toPhone} (msg=${messageId})`)
+    consecutiveSendFails.set(clinicId, 0)
+  } else {
+    const fails = (consecutiveSendFails.get(clinicId) ?? 0) + 1
+    consecutiveSendFails.set(clinicId, fails)
+    // Si pasamos el umbral y no hay ya una reconexión en curso, la disparamos
+    // en background. NO esperamos — el reintento del caller se beneficiará de
+    // la sesión nueva si su delay es suficiente.
+    if (fails >= AUTO_RECONNECT_FAIL_THRESHOLD && !reconnectInFlight.has(clinicId)) {
+      console.warn(
+        `[WA] ⚠️  ${fails} envíos consecutivos fallidos para clinic ${clinicId} — auto-reconexión`,
+      )
+      reconnectInFlight.add(clinicId)
+      forceReconnect(clinicId)
+        .catch(err => console.error(`[WA] Auto-reconexión falló: ${err?.message ?? err}`))
+        .finally(() => {
+          reconnectInFlight.delete(clinicId)
+          consecutiveSendFails.set(clinicId, 0)
+        })
+    }
   }
   return delivered
 }
@@ -537,7 +647,10 @@ export async function sendMessageWithRetry(
   toPhone: string,
   text: string,
 ): Promise<boolean> {
-  const delays = [0, 2000, 5000]
+  // Total wall-clock peor caso: 4s (ACK) + 1s + 4s + 3s + 4s ≈ 16s.
+  // El 3er intento llega DESPUÉS de que la auto-reconexión típica termina (~8s)
+  // si el primer fallo la disparó.
+  const delays = [0, 1000, 3000]
   for (let i = 0; i < delays.length; i++) {
     if (delays[i]! > 0) await sleep(delays[i]!)
     const ok = await sendMessage(clinicId, toPhone, text)
@@ -570,7 +683,8 @@ export async function setChatPresence(
       await sock.sendPresenceUpdate('available')
       presenceInitialized.add(clinicId)
     }
-    await sock.sendPresenceUpdate(state, phoneToJid(toPhone))
+    const presenceJid = lookupJid(clinicId, toPhone) ?? phoneToJid(toPhone)
+    await sock.sendPresenceUpdate(state, presenceJid)
   } catch (err) {
     // Presencia es best-effort: si falla no rompemos el flujo
     console.warn(`[WA] No se pudo actualizar presencia ${state} para ${toPhone}:`, (err as Error).message)
@@ -657,6 +771,9 @@ export async function forceReconnect(clinicId: string): Promise<void> {
   // Limpiar ACKs colgados de la sesión vieja
   for (const [, resolver] of pendingSendAcks) resolver(false)
   pendingSendAcks.clear()
+  // Limpiar cache de JIDs (la próxima inbound los re-poblará — o leeremos
+  // de leads.phone_wa_id si vuelve un paciente conocido).
+  jidByPhone.delete(clinicId)
   sessionStatus.set(clinicId, 'connecting')
 
   // Arranque inmediato — startSession releerá creds.json desde disco

@@ -6,7 +6,7 @@
 import { Queue, Worker, Job } from 'bullmq'
 import IORedis from 'ioredis'
 import { createClient } from '@supabase/supabase-js'
-import { sendMessage } from './whatsapp.js'
+import { sendMessageWithRetry } from './whatsapp.js'
 import { decrypt } from './crypto.js'
 import Anthropic from '@anthropic-ai/sdk'
 import type { Lead, ClinicConfig, FollowUp } from '../types/tenant.js'
@@ -300,7 +300,7 @@ export function startFollowUpWorker(): void {
       const message = await generateFollowUpMessage(config, lead, type)
 
       // Enviar por WhatsApp
-      const sent = await sendMessage(clinic_id, lead.phone, message)
+      const sent = await sendMessageWithRetry(clinic_id, lead.phone, message)
 
       if (!sent) throw new Error(`No se pudo enviar mensaje a ${lead.phone}`)
 
