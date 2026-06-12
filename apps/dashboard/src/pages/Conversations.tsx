@@ -90,6 +90,9 @@ interface Message {
   source?: 'history' | 'outgoing'
   manual?: boolean
   analyzed?: boolean
+  /** false = el mensaje no llegó al WhatsApp del paciente (sesión caída). */
+  delivered?: boolean
+  delivery_error?: string
 }
 
 interface LeadDetail extends LeadSummary {
@@ -566,24 +569,32 @@ export default function Conversations() {
     const isManual = !!msg.manual
     const isImage = msg.type === 'image' && /^https?:\/\//.test(msg.content)
     const isAudio = msg.type === 'audio'
+    // Solo aplica a salientes: undefined = legacy/asumido entregado, false = falló
+    const isUndelivered = isAssistant && msg.delivered === false
     return (
       <div key={i} className={`group flex gap-3 ${isAssistant ? '' : 'flex-row-reverse'}`}>
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          isAssistant ? (isManual ? 'bg-violet-500/20' : 'bg-lime-500/20') : 'bg-dark-500'
+          isUndelivered
+            ? 'bg-red-500/15 ring-1 ring-red-500/30'
+            : isAssistant ? (isManual ? 'bg-violet-500/20' : 'bg-lime-500/20') : 'bg-dark-500'
         }`}>
           {isAssistant
-            ? (isManual
-                ? <User className="h-3.5 w-3.5 text-violet-300" />
-                : <Bot className="h-3.5 w-3.5 text-lime-400" />)
+            ? (isUndelivered
+                ? <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                : isManual
+                  ? <User className="h-3.5 w-3.5 text-violet-300" />
+                  : <Bot className="h-3.5 w-3.5 text-lime-400" />)
             : <User className="h-3.5 w-3.5 text-zinc-400" />
           }
         </div>
         <div className="relative max-w-[75%]">
           <div
             className={`rounded-xl px-4 py-2.5 text-sm ${
-              isAssistant
-                ? (isManual ? 'bg-violet-500/10 text-violet-100' : 'bg-dark-600 text-zinc-200')
-                : 'bg-lime-500/15 text-white'
+              isUndelivered
+                ? 'border border-red-500/30 bg-red-500/[0.07] text-zinc-200'
+                : isAssistant
+                  ? (isManual ? 'bg-violet-500/10 text-violet-100' : 'bg-dark-600 text-zinc-200')
+                  : 'bg-lime-500/15 text-white'
             }`}
           >
             {msg.analyzed && (
@@ -607,7 +618,7 @@ export default function Conversations() {
             ) : (
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
             )}
-            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500">
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
               <span>{formatMessageTime(msg.timestamp)}</span>
               {isHistoric && (
                 <span className="rounded bg-zinc-700/50 px-1 py-px uppercase tracking-wide text-zinc-400">
@@ -624,7 +635,31 @@ export default function Conversations() {
                   Panel
                 </span>
               )}
+              {isUndelivered && (
+                <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-px uppercase tracking-wide text-red-300">
+                  <AlertCircle className="h-2.5 w-2.5" />
+                  No entregado
+                </span>
+              )}
             </div>
+            {isUndelivered && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-2.5 py-1.5">
+                <p className="text-[11px] leading-tight text-red-200/90">
+                  {msg.delivery_error ?? 'WhatsApp no entregó este mensaje al paciente.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sending) return
+                    sendManual(msg.content)
+                  }}
+                  disabled={sending || !waConnected}
+                  className="shrink-0 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-200 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  Reintentar
+                </button>
+              </div>
+            )}
           </div>
           {!isImage && !isAudio && (
             <button

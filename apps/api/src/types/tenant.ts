@@ -113,6 +113,19 @@ export interface Message {
   type: 'text' | 'image' | 'audio' | 'document'
   media_url?: string       // si es imagen o audio
   analyzed?: boolean       // si ya fue analizado por visión IA
+  /**
+   * Para mensajes salientes ('assistant'): indica si el mensaje realmente
+   * llegó al WhatsApp del paciente. `false` cuando la sesión de WA estaba
+   * caída o el envío falló tras los reintentos. Si está ausente se asume
+   * `true` (legacy).
+   */
+  delivered?: boolean
+  /** Razón corta del fallo de entrega, cuando `delivered === false`. */
+  delivery_error?: string
+  /** 'outgoing' = enviado desde el panel/AI · 'history' = sync histórico */
+  source?: 'history' | 'outgoing'
+  /** Mensaje enviado manualmente por el doctor desde el panel. */
+  manual?: boolean
 }
 
 export interface ConversationContext {

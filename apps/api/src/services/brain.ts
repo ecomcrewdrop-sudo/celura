@@ -11,6 +11,7 @@ import { scheduleFollowUps } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import { AIClient } from './ai-provider.js'
 import { trackErrorSync } from './error-tracker.js'
+import { notify } from './notifications.js'
 import type {
   ClinicConfig,
   Lead,
@@ -353,14 +354,18 @@ export async function persistRawMessage(waMsg: WAMessage): Promise<void> {
     if (alreadyPresent) return
 
     const role: Message['role'] = direction === 'outgoing' ? 'assistant' : 'user'
-    const newMessage: Message & { wa_id?: string; source?: string } = {
+    // `persistRawMessage` solo recibe mensajes 'outgoing' o 'history'
+    // (los 'incoming' van por processMessage). Normalizamos para el tipo.
+    const sourceTag: 'history' | 'outgoing' =
+      direction === 'history' ? 'history' : 'outgoing'
+    const newMessage: Message & { wa_id?: string } = {
       role,
       // historial entrante (paciente) = user; salientes desde el tel del doctor = assistant
       content: content || (type === 'image' ? '[Foto]' : ''),
       timestamp: new Date(timestamp).toISOString(),
       type,
       wa_id: waMsg.message_id,
-      source: direction,   // 'history' | 'outgoing'
+      source: sourceTag,
     }
 
     const updatedMessages = [...(conversation.messages ?? []), newMessage]
@@ -674,15 +679,28 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       }
     }
 
-    // 10. Guardar respuesta del asistente
+    // 10. Enviar respuesta por WhatsApp PRIMERO con comportamiento humano
+    //     (composing → delay proporcional → split en burbujas → retry).
+    //     IMPORTANTE: enviamos antes de persistir para que el `delivered`
+    //     del mensaje refleje el estado real. Si la sesión de WA está caída
+    //     no queremos mostrar al doctor un fantasma "el asistente respondió".
+    const sent = await sendHumanlike(clinic_id, from_phone, assistantText)
+    if (!sent) {
+      console.error(`[Brain] No se pudo enviar respuesta a ${from_phone}`)
+    }
+
+    // 11. Guardar respuesta del asistente (con el estado real de entrega)
     const assistantMessage: Message = {
       role: 'assistant',
       content: assistantText,
       timestamp: new Date().toISOString(),
       type: 'text',
+      source: 'outgoing',
+      delivered: sent,
+      ...(sent ? {} : { delivery_error: 'WhatsApp no entregó el mensaje (sesión caída o sin conexión)' }),
     }
 
-    // 11. Detectar si el nombre fue mencionado (heurística básica).
+    // 11b. Detectar si el nombre fue mencionado (heurística básica).
     //     Solo aplica a mensajes de texto cortos — no a audios/imágenes.
     let nameUpdate: Partial<Lead> = {}
     if (
@@ -736,11 +754,22 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       )
     }
 
-    // 13. Enviar respuesta por WhatsApp con comportamiento humano
-    //     (composing → delay proporcional → split en burbujas → retry)
-    const sent = await sendHumanlike(clinic_id, from_phone, assistantText)
+    // 13. Si el envío falló, notificar al doctor para que tome acción
     if (!sent) {
-      console.error(`[Brain] No se pudo enviar respuesta a ${from_phone}`)
+      void notify(clinic_id, {
+        kind: 'system',
+        severity: 'warning',
+        title: 'Tu asistente no pudo responder a un paciente',
+        body: `Reconecta WhatsApp para que el asistente vuelva a responder. Paciente: ${lead.name ?? from_phone}.`,
+        icon: 'AlertTriangle',
+        action_url: '/whatsapp',
+        action_label: 'Reconectar',
+        entity_type: 'lead',
+        entity_id: lead.id,
+        metadata: { phone: from_phone, lead_id: lead.id, reason: 'wa_delivery_failed' },
+      }).catch((err) => {
+        console.error(`[Brain] No se pudo notificar delivery fail:`, err)
+      })
     }
 
     // 14. Programar seguimientos si aplica
