@@ -304,6 +304,11 @@ export type TriggerType =
   | 'photo_received'        // paciente envió imagen
   | 'urgency_level'         // urgencia detectada >= X (params: { min: UrgencyLevel })
   | 'lead_score_above'      // score cruzó umbral (params: { threshold: number })
+  | 'appointment_confirmed' // se acaba de confirmar/agendar una cita en esta conversación
+  | 'appointment_completed' // el paciente terminó su visita (manual/auto)
+  | 'lead_inactive_days'    // pasaron N días desde el último contacto (params: { days })
+  | 'objection_detected'    // objeción típica (params: { kind: 'price'|'thinking'|'competitor'|'no_money' })
+  | 'treatment_mentioned'   // menciona un tratamiento de la lista (params: { treatment?: string })
 
 export type ConditionType =
   | 'is_business_hours'     // según schedule de la clínica
@@ -314,6 +319,12 @@ export type ConditionType =
   | 'message_contains'      // params: { text: string[] }
   | 'name_known'            // tenemos nombre del paciente
   | 'photo_finding'         // último análisis Vision tiene hallazgo (params: { area: string, min_severity: 'leve'|'moderado'|'severo' })
+  | 'quiet_hours_now'       // estamos dentro del rango de quiet hours configurado
+  | 'is_weekend'            // sábado o domingo
+  | 'last_message_age_hours'// han pasado >= N horas desde el último mensaje del paciente (params: { hours })
+  | 'times_contacted_above' // el bot ha intentado contactarlo más de N veces (params: { count })
+  | 'has_phone'             // tenemos teléfono guardado del lead
+  | 'tone_is'               // el tono configurado de la clínica (params: { tone: 'formal'|'warm'|'direct' })
 
 export type ActionType =
   | 'send_message'          // params: { text: string } — soporta {{name}}, {{clinic}}
@@ -329,6 +340,14 @@ export type ActionType =
   | 'schedule_followup'     // params: { minutes: number, message: string }
   | 'tag_lead'              // params: { tag: string }
   | 'end_workflow'          // termina sin más acciones (útil tras una rama)
+  | 'send_template'         // params: { template_key: keyof followup_config.templates } — usa plantillas configuradas
+  | 'confirm_appointment'   // confirma con la fórmula exacta ("Listo, agendado para…")
+  | 'propose_slots'         // propone 2 horarios concretos del próximo día abierto sin choque
+  | 'pivot_back_to_goal'    // responde breve a la desviación y vuelve a la cita (params: { brief_answer?: string })
+  | 'request_data'          // pide datos formales (params: { fields: string[] })
+  | 'wait_minutes'          // pausa el flujo programando continuación (params: { minutes: number })
+  | 'respect_quiet_hours'   // si estamos en quiet hours, posterga las acciones siguientes al primer minuto fuera
+  | 'reinforce_persona'     // inyecta un addon de persona en la próxima ai_respond (params: { persona_addon: string })
 
 export interface WorkflowTrigger {
   id: string

@@ -41,6 +41,10 @@ export interface EngineContext {
   intent: string
   visionAnalysis: VisionAnalysis | null
   ai: AIClient
+  /** El brain marca true cuando acaba de confirmar/agendar una cita en este turno */
+  justConfirmedAppointment?: boolean
+  /** Si el brain ya detectó timezone de la clínica */
+  timezone?: string
 }
 
 export interface EngineFollowUp {
@@ -60,6 +64,51 @@ export interface EngineResult {
   needs_photo: boolean
   needs_vision: boolean              // workflow pide analyze_photo
   blocks_executed: number
+  /** Refuerzos de persona que el brain debe concatenar al system prompt */
+  persona_addons: string[]
+  /** Si true, el brain debe respetar quiet hours para las respuestas siguientes */
+  defer_until_quiet_hours_end: boolean
+}
+
+// ── Detección simple de objeciones por keywords ──
+const OBJECTION_KEYWORDS: Record<string, string[]> = {
+  price:      ['caro', 'mucho dinero', 'precio alto', 'es mucho', 'no me alcanza para eso'],
+  thinking:   ['lo pienso', 'lo pensaré', 'lo pensare', 'voy a pensar', 'después te digo', 'despues te digo'],
+  competitor: ['otra clínica', 'otra clinica', 'más barato en', 'mas barato en', 'me cobran menos', 'cotizaron'],
+  no_money:   ['no tengo dinero', 'no tengo plata', 'sin presupuesto', 'no me alcanza', 'me quedé sin'],
+}
+
+function detectObjection(text: string): string | null {
+  const lower = text.toLowerCase()
+  for (const [kind, kws] of Object.entries(OBJECTION_KEYWORDS)) {
+    if (kws.some((k) => lower.includes(k))) return kind
+  }
+  return null
+}
+
+// ── ¿Estamos dentro de la ventana de quiet hours configurada? ──
+function isInQuietHours(config: ClinicConfig, timezone: string): boolean {
+  const quiet = config.followup_config?.quiet_hours
+  if (!quiet?.enabled || !quiet.from || !quiet.to) return false
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date())
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10)
+    const now = h * 60 + m
+    const [fh, fm] = quiet.from.split(':').map((n) => parseInt(n, 10))
+    const [th, tm] = quiet.to.split(':').map((n) => parseInt(n, 10))
+    const from = (fh ?? 0) * 60 + (fm ?? 0)
+    const to = (th ?? 0) * 60 + (tm ?? 0)
+    if (from <= to) return now >= from && now < to
+    return now >= from || now < to     // cruza medianoche
+  } catch {
+    return false
+  }
 }
 
 const URGENCY_RANK: Record<UrgencyLevel, number> = {
@@ -128,6 +177,38 @@ function triggerMatches(type: TriggerType, params: Record<string, unknown>, ctx:
       return ctx.lead.score >= threshold
     }
 
+    case 'appointment_confirmed':
+      return !!ctx.justConfirmedAppointment
+
+    case 'appointment_completed':
+      // Solo lo activa el job que marca cita como completed; en runtime no.
+      return false
+
+    case 'lead_inactive_days': {
+      // En runtime per-message no aplica (el lead acaba de hablar).
+      // Reservado para el job de reactivación que llama runWorkflowsForMessage
+      // con un waMsg sintético. Por ahora siempre false.
+      const days = (params['days'] as number | undefined) ?? 7
+      if (!ctx.lead.last_message_at) return false
+      const last = new Date(ctx.lead.last_message_at).getTime()
+      const ageDays = (Date.now() - last) / (1000 * 60 * 60 * 24)
+      return ageDays >= days && ctx.isFirstMessage === false   // solo si no es un mensaje vivo
+    }
+
+    case 'objection_detected': {
+      const expectedKind = params['kind'] as string | undefined
+      const detected = detectObjection(text)
+      if (!detected) return false
+      return !expectedKind || detected === expectedKind
+    }
+
+    case 'treatment_mentioned': {
+      const explicit = (params['treatment'] as string | undefined)?.trim().toLowerCase()
+      if (explicit) return text.includes(explicit)
+      // Cualquier tratamiento de la lista de la clínica
+      return ctx.config.treatments.some((t) => text.includes(t.toLowerCase()))
+    }
+
     default:
       return false
   }
@@ -170,9 +251,100 @@ function conditionMatches(type: ConditionType, params: Record<string, unknown>, 
       )
     }
 
+    case 'quiet_hours_now':
+      return isInQuietHours(ctx.config, ctx.timezone ?? 'America/Bogota')
+
+    case 'is_weekend': {
+      const day = new Date().getDay()
+      return day === 0 || day === 6
+    }
+
+    case 'last_message_age_hours': {
+      const hours = (params['hours'] as number | undefined) ?? 24
+      if (!ctx.lead.last_message_at) return true
+      const last = new Date(ctx.lead.last_message_at).getTime()
+      const ageHours = (Date.now() - last) / (1000 * 60 * 60)
+      return ageHours >= hours
+    }
+
+    case 'times_contacted_above': {
+      const min = (params['count'] as number | undefined) ?? 2
+      const assistantMsgs = ctx.conversation.messages.filter((m) => m.role === 'assistant').length
+      return assistantMsgs > min
+    }
+
+    case 'has_phone':
+      return !!ctx.lead.phone && ctx.lead.phone.length > 0
+
+    case 'tone_is':
+      return ctx.config.tone === (params['tone'] as string)
+
     default:
       return false
   }
+}
+
+// ── Calcula 2 slots libres del próximo día abierto ──
+//    Retorna texto humano listo para mandar
+async function computeNextSlots(
+  ctx: EngineContext,
+  durationMinutes: number,
+): Promise<string | null> {
+  const dayKeys: (keyof typeof ctx.config.schedule)[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+  const dayLabels = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+
+  // Buscamos desde mañana hasta 7 días en adelante
+  for (let d = 1; d <= 7; d++) {
+    const date = new Date()
+    date.setDate(date.getDate() + d)
+    const dayIdx = date.getDay()
+    const range = ctx.config.schedule[dayKeys[dayIdx]!]
+    if (!range) continue
+    const m = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(range)
+    if (!m) continue
+    const [, sh, sm, eh, em] = m
+    const startMin = parseInt(sh!) * 60 + parseInt(sm!)
+    const endMin = parseInt(eh!) * 60 + parseInt(em!)
+
+    // Citas ya agendadas ese día
+    const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date(date);   dayEnd.setHours(23, 59, 59, 999)
+    const { data: appts } = await supabaseAdmin
+      .from('appointments')
+      .select('start_at, end_at')
+      .eq('clinic_id', ctx.config.clinic_id)
+      .gte('start_at', dayStart.toISOString())
+      .lte('start_at', dayEnd.toISOString())
+      .neq('status', 'cancelled')
+
+    const busy = (appts ?? []).map((a) => ({
+      from: new Date((a as { start_at: string }).start_at),
+      to: new Date((a as { end_at: string }).end_at),
+    }))
+
+    // Iteramos slots cada 30 min, recogemos los primeros 2 libres
+    const slots: string[] = []
+    for (let t = startMin; t + durationMinutes <= endMin; t += 30) {
+      const slotStart = new Date(date)
+      slotStart.setHours(Math.floor(t / 60), t % 60, 0, 0)
+      const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60_000)
+      const conflicts = busy.some((b) => slotStart < b.to && slotEnd > b.from)
+      if (conflicts) continue
+      const hh = String(Math.floor(t / 60)).padStart(2, '0')
+      const mm = String(t % 60).padStart(2, '0')
+      slots.push(`${hh}:${mm}`)
+      if (slots.length === 2) break
+    }
+    if (slots.length === 0) continue
+
+    const dayLabel = dayLabels[dayIdx]
+    const dateStr = `${date.getDate()}/${date.getMonth() + 1}`
+    if (slots.length === 1) {
+      return `Te puedo agendar el ${dayLabel} ${dateStr} a las ${slots[0]}. ¿Te va?`
+    }
+    return `Tengo disponibilidad el ${dayLabel} ${dateStr} a las ${slots[0]} o ${slots[1]}. ¿Cuál te queda mejor?`
+  }
+  return null
 }
 
 // ── Ejecuta un bloque action: muta el resultado y opcionalmente
@@ -291,6 +463,68 @@ REGLAS:
     case 'end_workflow':
       return { stop: true }
 
+    case 'send_template': {
+      const key = params['template_key'] as string | undefined
+      const templates = ctx.config.followup_config?.templates as Record<string, string> | undefined
+      if (!key || !templates) return { stop: false }
+      const raw = templates[key]
+      if (!raw) return { stop: false }
+      return { response: interpolate(raw, ctx), stop: false }
+    }
+
+    case 'confirm_appointment': {
+      // Fórmula oficial. El brain ya hace insert al detectar confirmación;
+      // aquí simplemente refuerza el mensaje si el workflow lo pide.
+      const name = ctx.lead.name ?? ''
+      const txt = name
+        ? `Listo ${name} ✅ te dejo agendada tu cita. Si necesitas reagendar, escríbeme con tiempo 😊`
+        : `Listo ✅ te dejo agendada la cita. Si necesitas reagendar, escríbeme con tiempo 😊`
+      return { response: txt, stop: false }
+    }
+
+    case 'propose_slots': {
+      const duration = (params['duration_minutes'] as number | undefined) ?? 60
+      const txt = await computeNextSlots(ctx, duration)
+      if (!txt) return { stop: false }
+      return { response: txt, stop: false }
+    }
+
+    case 'pivot_back_to_goal': {
+      const brief = interpolate((params['brief_answer'] as string | undefined) ?? '', ctx).trim()
+      const pivot = '¿Te agendo una valoración rápida para resolverlo en consulta?'
+      const txt = brief ? `${brief}\n\n${pivot}` : pivot
+      return { response: txt, stop: false }
+    }
+
+    case 'request_data': {
+      const fields = (params['fields'] as string[] | undefined) ?? ['nombre', 'apellido', 'telefono', 'motivo']
+      const numbered = fields.map((f, i) => `${i + 1}. ${f.charAt(0).toUpperCase() + f.slice(1)}`).join('\n')
+      const txt = `Perfecto 😊\nPara agendarte necesito estos datos:\n\n${numbered}`
+      return { response: txt, stop: false }
+    }
+
+    case 'wait_minutes': {
+      // Implementación lite: convertimos en un schedule_followup vacío para
+      // que el scheduler retome más tarde. Si el workflow tenía bloques
+      // después, los marcamos como diferidos (no se ejecutan en este turno).
+      const minutes = (params['minutes'] as number | undefined) ?? 30
+      result.followups.push({ minutes, message: '' })
+      return { stop: true }
+    }
+
+    case 'respect_quiet_hours': {
+      if (isInQuietHours(ctx.config, ctx.timezone ?? 'America/Bogota')) {
+        result.defer_until_quiet_hours_end = true
+      }
+      return { stop: false }
+    }
+
+    case 'reinforce_persona': {
+      const addon = (params['persona_addon'] as string | undefined)?.trim()
+      if (addon) result.persona_addons.push(addon)
+      return { stop: false }
+    }
+
     default:
       return { stop: false }
   }
@@ -343,6 +577,8 @@ export async function runWorkflowsForMessage(ctx: EngineContext): Promise<Engine
     needs_photo: false,
     needs_vision: false,
     blocks_executed: 0,
+    persona_addons: [],
+    defer_until_quiet_hours_end: false,
   }
 
   const { data: workflows } = await supabaseAdmin

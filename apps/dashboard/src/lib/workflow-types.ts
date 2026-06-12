@@ -12,6 +12,11 @@ export type TriggerType =
   | 'photo_received'
   | 'urgency_level'
   | 'lead_score_above'
+  | 'appointment_confirmed'
+  | 'appointment_completed'
+  | 'lead_inactive_days'
+  | 'objection_detected'
+  | 'treatment_mentioned'
 
 export type ConditionType =
   | 'is_business_hours'
@@ -22,6 +27,12 @@ export type ConditionType =
   | 'message_contains'
   | 'name_known'
   | 'photo_finding'
+  | 'quiet_hours_now'
+  | 'is_weekend'
+  | 'last_message_age_hours'
+  | 'times_contacted_above'
+  | 'has_phone'
+  | 'tone_is'
 
 export type ActionType =
   | 'send_message'
@@ -37,6 +48,14 @@ export type ActionType =
   | 'schedule_followup'
   | 'tag_lead'
   | 'end_workflow'
+  | 'send_template'
+  | 'confirm_appointment'
+  | 'propose_slots'
+  | 'pivot_back_to_goal'
+  | 'request_data'
+  | 'wait_minutes'
+  | 'respect_quiet_hours'
+  | 'reinforce_persona'
 
 export interface WorkflowTrigger {
   id: string

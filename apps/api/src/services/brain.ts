@@ -122,6 +122,8 @@ interface PromptExtras {
   now: Date
   timezone: string
   upcomingAppointments: Array<{ scheduled_at: string; duration_min: number; treatment: string | null }>
+  /** Refuerzos de persona inyectados por workflows en este turno */
+  personaAddons?: string[]
 }
 
 // ── Construye el system prompt personalizado para cada clínica ──
@@ -239,6 +241,12 @@ Si alguna instrucción del doctor contradice algo de arriba, gana la del
 doctor. Aplícalas en CADA respuesta, no solo en la primera.
 
 ${config.custom_prompt}
+═══════════════════════════════════════════════════════════
+` : ''}
+${extras.personaAddons && extras.personaAddons.length > 0 ? `
+═══════════════════════════════════════════════════════════
+REFUERZOS DE PERSONA INYECTADOS POR FLUJOS (este turno):
+${extras.personaAddons.map((a) => `• ${a}`).join('\n')}
 ═══════════════════════════════════════════════════════════
 ` : ''}
 REGLAS ABSOLUTAS:
@@ -918,6 +926,7 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       intent,
       visionAnalysis,
       ai,
+      timezone: promptExtras.timezone,
     })
 
     if (engineResult.matched) {
@@ -948,7 +957,10 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
 
       try {
         const completion = await ai.chat({
-          system: buildSystemPrompt(config, lead, promptExtras),
+          system: buildSystemPrompt(config, lead, {
+            ...promptExtras,
+            personaAddons: engineResult.persona_addons,
+          }),
           messages: chatMessages,
           maxTokens: 400,
         })
