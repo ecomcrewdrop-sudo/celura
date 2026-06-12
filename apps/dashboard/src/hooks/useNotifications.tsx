@@ -83,6 +83,10 @@ interface NotificationsCtx {
   markRead: (id: string) => Promise<void>
   markAllRead: () => Promise<void>
   archive: (id: string) => Promise<void>
+  // Drawer global
+  drawerOpen: boolean
+  openDrawer: () => void
+  closeDrawer: () => void
   // Toast queue
   toasts: AppNotification[]
   dismissToast: (id: string) => void
@@ -100,6 +104,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [cursor, setCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [toasts, setToasts] = useState<AppNotification[]>([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const openDrawer = useCallback(() => setDrawerOpen(true), [])
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
 
   // Track ids ya vistos para dedup del realtime
   const seenIdsRef = useRef<Set<string>>(new Set())
@@ -229,10 +237,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       markRead,
       markAllRead,
       archive,
+      drawerOpen,
+      openDrawer,
+      closeDrawer,
       toasts,
       dismissToast,
     }),
-    [items, unread, loading, liveConnected, refresh, loadMore, hasMore, markRead, markAllRead, archive, toasts, dismissToast],
+    [items, unread, loading, liveConnected, refresh, loadMore, hasMore, markRead, markAllRead, archive, drawerOpen, openDrawer, closeDrawer, toasts, dismissToast],
   )
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>

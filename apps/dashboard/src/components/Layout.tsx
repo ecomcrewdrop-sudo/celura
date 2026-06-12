@@ -5,6 +5,7 @@ import Sidebar from './Sidebar'
 import { useClinic } from '@/hooks/useClinic'
 import Avatar from './Avatar'
 import NotificationsBell from './NotificationsBell'
+import NotificationsDrawer from './NotificationsDrawer'
 import NotificationsToastStack from './NotificationsToastStack'
 
 export default function Layout() {
@@ -76,6 +77,9 @@ export default function Layout() {
         {/* Bottom safe-area filler for iPhone home indicator */}
         <div className="safe-pb" />
       </main>
+
+      {/* Drawer global de notificaciones (renderizado vía portal) */}
+      <NotificationsDrawer />
 
       {/* Toasts globales de notifs realtime */}
       <NotificationsToastStack />
