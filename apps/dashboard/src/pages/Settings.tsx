@@ -26,12 +26,45 @@ import {
   AlertTriangle,
   Plus,
   X,
+  BellRing,
+  Moon,
+  ChevronDown,
 } from 'lucide-react'
 
-type SectionId = 'general' | 'conversation' | 'services' | 'schedule' | 'vision' | 'engine' | 'keys'
+type SectionId = 'general' | 'conversation' | 'services' | 'schedule' | 'followups' | 'vision' | 'engine' | 'keys'
 type Tone = 'warm' | 'formal' | 'direct'
 type Sensitivity = 'conservative' | 'balanced' | 'thorough'
 type Provider = 'claude' | 'openai'
+
+interface FollowupForm {
+  appointment_reminders: {
+    h24_enabled: boolean
+    h2_enabled: boolean
+    h2_minutes_before: number
+    post_visit_enabled: boolean
+    post_visit_minutes_after: number
+    review_request_enabled: boolean
+    review_request_hours_after: number
+  }
+  cold_followups: {
+    d7_enabled: boolean;  d7_days: number
+    d14_enabled: boolean; d14_days: number
+    d30_enabled: boolean; d30_days: number
+  }
+  reactivation: { enabled: boolean; months_inactive: number }
+  ai_generated: boolean
+  quiet_hours: { enabled: boolean; from: string; to: string }
+  templates: {
+    pre_appt_24h: string
+    pre_appt_2h: string
+    post_appt_1h: string
+    post_appt_review: string
+    cold_7d: string
+    cold_14d: string
+    cold_30d: string
+    reactivation: string
+  }
+}
 
 interface FormState {
   assistant_name: string
@@ -51,6 +84,31 @@ interface FormState {
   vision_focus: string[]
   vision_auto_suggest: boolean
   vision_disclaimer: string
+  followup: FollowupForm
+}
+
+const DEFAULT_FOLLOWUP: FollowupForm = {
+  appointment_reminders: {
+    h24_enabled: true,
+    h2_enabled: true,
+    h2_minutes_before: 120,
+    post_visit_enabled: true,
+    post_visit_minutes_after: 60,
+    review_request_enabled: true,
+    review_request_hours_after: 24,
+  },
+  cold_followups: {
+    d7_enabled: true,  d7_days: 7,
+    d14_enabled: true, d14_days: 14,
+    d30_enabled: true, d30_days: 30,
+  },
+  reactivation: { enabled: false, months_inactive: 3 },
+  ai_generated: true,
+  quiet_hours: { enabled: true, from: '21:00', to: '08:00' },
+  templates: {
+    pre_appt_24h: '', pre_appt_2h: '', post_appt_1h: '', post_appt_review: '',
+    cold_7d: '', cold_14d: '', cold_30d: '', reactivation: '',
+  },
 }
 
 const DAYS = [
@@ -115,6 +173,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof User; desc: string 
   { id: 'conversation', label: 'Conversación', icon: MessageSquare, desc: 'Saludos y prompt' },
   { id: 'services', label: 'Servicios', icon: Stethoscope, desc: 'Tratamientos y escalación' },
   { id: 'schedule', label: 'Horarios', icon: Clock, desc: 'Días y horas' },
+  { id: 'followups', label: 'Seguimientos', icon: BellRing, desc: 'Recordatorios y cold leads' },
   { id: 'vision', label: 'Análisis visual', icon: Scan, desc: 'IA clínica de fotos' },
   { id: 'engine', label: 'Motor de IA', icon: Bot, desc: 'Claude o ChatGPT' },
   { id: 'keys', label: 'Claves API', icon: Key, desc: 'Claude · OpenAI · ElevenLabs' },
@@ -138,6 +197,21 @@ const EMPTY_FORM: FormState = {
   vision_focus: [],
   vision_auto_suggest: true,
   vision_disclaimer: '',
+  followup: DEFAULT_FOLLOWUP,
+}
+
+// Hace merge profundo de lo que venga del backend con los defaults.
+// Si la clínica nunca tocó esta config, todos los campos quedan en su default.
+function mergeFollowup(incoming: Partial<FollowupForm> | undefined): FollowupForm {
+  if (!incoming) return DEFAULT_FOLLOWUP
+  return {
+    appointment_reminders: { ...DEFAULT_FOLLOWUP.appointment_reminders, ...incoming.appointment_reminders },
+    cold_followups: { ...DEFAULT_FOLLOWUP.cold_followups, ...incoming.cold_followups },
+    reactivation: { ...DEFAULT_FOLLOWUP.reactivation, ...incoming.reactivation },
+    ai_generated: incoming.ai_generated ?? DEFAULT_FOLLOWUP.ai_generated,
+    quiet_hours: { ...DEFAULT_FOLLOWUP.quiet_hours, ...incoming.quiet_hours },
+    templates: { ...DEFAULT_FOLLOWUP.templates, ...incoming.templates },
+  }
 }
 
 function normalizeScheduleEntry(raw: string | null | undefined): string | null {
@@ -229,6 +303,338 @@ function ChipInput({
   )
 }
 
+// ── Componentes auxiliares de la sección Seguimientos ──────────
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+        on ? 'bg-lime-500' : 'bg-dark-500'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+          on ? 'translate-x-5' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  )
+}
+
+function ReminderRow({
+  title,
+  desc,
+  enabled,
+  onToggle,
+  delay,
+  onDelayChange,
+  delayUnit,
+  delayMin,
+  delayMax,
+}: {
+  title: string
+  desc: string
+  enabled: boolean
+  onToggle: (v: boolean) => void
+  delay?: number
+  onDelayChange?: (v: number) => void
+  delayUnit?: string
+  delayMin?: number
+  delayMax?: number
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-dark-500 bg-dark-700/40 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-white">{title}</p>
+          <p className="mt-0.5 text-[11px] text-zinc-500">{desc}</p>
+        </div>
+        <Toggle on={enabled} onChange={onToggle} />
+      </div>
+      {delay !== undefined && onDelayChange && delayUnit && (
+        <div className={`flex items-center gap-2 ${enabled ? '' : 'pointer-events-none opacity-40'}`}>
+          <input
+            type="number"
+            min={delayMin ?? 1}
+            max={delayMax ?? 999}
+            value={delay}
+            onChange={(e) => onDelayChange(parseInt(e.target.value || '0', 10))}
+            className="w-20 rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50"
+          />
+          <span className="text-xs text-zinc-400">{delayUnit}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const TEMPLATE_LABELS: Array<{ key: keyof FollowupForm['templates']; label: string; placeholder: string }> = [
+  { key: 'pre_appt_24h',     label: 'Recordatorio 24h antes',  placeholder: '{{name}}, te recuerdo tu cita mañana…' },
+  { key: 'pre_appt_2h',      label: 'Recordatorio horas antes', placeholder: '{{name}}, tu cita es muy pronto…' },
+  { key: 'post_appt_1h',     label: 'Post-cita',                placeholder: '{{name}}, ¿cómo te sentiste hoy?' },
+  { key: 'post_appt_review', label: 'Pedir reseña',             placeholder: 'Si quieres dejarnos una reseña en Google…' },
+  { key: 'cold_7d',          label: 'Lead frío 7 días',         placeholder: '{{name}}, hace una semana preguntaste…' },
+  { key: 'cold_14d',         label: 'Lead frío 14 días',        placeholder: '{{name}}, queríamos saber si aún…' },
+  { key: 'cold_30d',         label: 'Lead frío 30 días',        placeholder: '{{name}}, última vez por si te interesa…' },
+  { key: 'reactivation',     label: 'Reactivación',             placeholder: '{{name}}, hace tiempo que no sabemos de ti…' },
+]
+
+function renderFollowupsSection(
+  form: FormState,
+  setForm: React.Dispatch<React.SetStateAction<FormState>>,
+) {
+  const fu = form.followup
+  const update = (next: Partial<FollowupForm>) =>
+    setForm({ ...form, followup: { ...fu, ...next } })
+  const updateReminders = (next: Partial<FollowupForm['appointment_reminders']>) =>
+    update({ appointment_reminders: { ...fu.appointment_reminders, ...next } })
+  const updateCold = (next: Partial<FollowupForm['cold_followups']>) =>
+    update({ cold_followups: { ...fu.cold_followups, ...next } })
+  const updateReact = (next: Partial<FollowupForm['reactivation']>) =>
+    update({ reactivation: { ...fu.reactivation, ...next } })
+  const updateQuiet = (next: Partial<FollowupForm['quiet_hours']>) =>
+    update({ quiet_hours: { ...fu.quiet_hours, ...next } })
+  const updateTemplate = (k: keyof FollowupForm['templates'], v: string) =>
+    update({ templates: { ...fu.templates, [k]: v.slice(0, 400) } })
+
+  return (
+    <div className="space-y-5">
+      {/* Modo IA + Horas silenciosas */}
+      <Card>
+        <div className="mb-4 flex items-start gap-2">
+          <Sparkles className="mt-0.5 h-4 w-4 text-lime-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-white">Estilo y horario</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Decide cómo se redactan los seguimientos y cuándo NO molestar al paciente.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-dark-500 bg-dark-700/40 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white">Mensajes generados por IA</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                Si está activo, la IA redacta cada mensaje cuidando tono y contexto. Si lo apagas, se envía
+                la plantilla fija que escribiste abajo (con variables como <code className="text-lime-400">{`{{name}}`}</code>).
+              </p>
+            </div>
+            <Toggle on={fu.ai_generated} onChange={(v) => update({ ai_generated: v })} />
+          </div>
+
+          <div className="rounded-lg border border-dark-500 bg-dark-700/40 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <Moon className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white">Horas silenciosas</p>
+                  <p className="mt-0.5 text-[11px] text-zinc-500">
+                    Si un recordatorio cae en esta ventana, se mueve al primer minuto fuera. Nadie recibe
+                    WhatsApp a las 3 AM.
+                  </p>
+                </div>
+              </div>
+              <Toggle on={fu.quiet_hours.enabled} onChange={(v) => updateQuiet({ enabled: v })} />
+            </div>
+            <div className={`mt-3 flex items-center gap-2 ${fu.quiet_hours.enabled ? '' : 'pointer-events-none opacity-40'}`}>
+              <input
+                type="time"
+                value={fu.quiet_hours.from}
+                onChange={(e) => updateQuiet({ from: e.target.value })}
+                className="rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50"
+              />
+              <span className="text-xs text-zinc-500">a</span>
+              <input
+                type="time"
+                value={fu.quiet_hours.to}
+                onChange={(e) => updateQuiet({ to: e.target.value })}
+                className="rounded-lg border border-dark-500 bg-dark-700 px-2 py-1 text-sm text-white outline-none focus:border-lime-500/50"
+              />
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500">tz de la clínica</span>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Recordatorios de cita */}
+      <Card>
+        <div className="mb-4 flex items-start gap-2">
+          <BellRing className="mt-0.5 h-4 w-4 text-lime-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-white">Recordatorios de cita</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Se programan automáticamente cuando se agenda una cita (tanto manual como por la IA).
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <ReminderRow
+            title="24 horas antes"
+            desc="Aviso un día antes para que confirme o reagende."
+            enabled={fu.appointment_reminders.h24_enabled}
+            onToggle={(v) => updateReminders({ h24_enabled: v })}
+          />
+          <ReminderRow
+            title="Horas antes (configurable)"
+            desc="Último recordatorio antes de la cita."
+            enabled={fu.appointment_reminders.h2_enabled}
+            onToggle={(v) => updateReminders({ h2_enabled: v })}
+            delay={fu.appointment_reminders.h2_minutes_before}
+            onDelayChange={(v) => updateReminders({ h2_minutes_before: v })}
+            delayUnit="minutos antes"
+            delayMin={15}
+            delayMax={240}
+          />
+          <ReminderRow
+            title="Post-cita"
+            desc="Mensaje cálido tras la visita preguntando cómo se sintió."
+            enabled={fu.appointment_reminders.post_visit_enabled}
+            onToggle={(v) => updateReminders({ post_visit_enabled: v })}
+            delay={fu.appointment_reminders.post_visit_minutes_after}
+            onDelayChange={(v) => updateReminders({ post_visit_minutes_after: v })}
+            delayUnit="minutos después"
+            delayMin={15}
+            delayMax={240}
+          />
+          <ReminderRow
+            title="Pedir reseña en Google"
+            desc="Se envía si todo salió bien. Útil para crecer tu reputación."
+            enabled={fu.appointment_reminders.review_request_enabled}
+            onToggle={(v) => updateReminders({ review_request_enabled: v })}
+            delay={fu.appointment_reminders.review_request_hours_after}
+            onDelayChange={(v) => updateReminders({ review_request_hours_after: v })}
+            delayUnit="horas después de la visita"
+            delayMin={6}
+            delayMax={72}
+          />
+        </div>
+      </Card>
+
+      {/* Cold followups */}
+      <Card>
+        <div className="mb-4 flex items-start gap-2">
+          <Clock className="mt-0.5 h-4 w-4 text-amber-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-white">Recuperación de leads fríos</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Cuando alguien escribe por primera vez y no avanza, la IA intenta retomar contacto sin
+              presión.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <ReminderRow
+            title="Primer intento"
+            desc="Retoma el contacto con curiosidad, sin insistir."
+            enabled={fu.cold_followups.d7_enabled}
+            onToggle={(v) => updateCold({ d7_enabled: v })}
+            delay={fu.cold_followups.d7_days}
+            onDelayChange={(v) => updateCold({ d7_days: v })}
+            delayUnit="días después del primer mensaje"
+            delayMin={1}
+            delayMax={21}
+          />
+          <ReminderRow
+            title="Segundo intento"
+            desc="Aporta algo de valor (consejo o info útil)."
+            enabled={fu.cold_followups.d14_enabled}
+            onToggle={(v) => updateCold({ d14_enabled: v })}
+            delay={fu.cold_followups.d14_days}
+            onDelayChange={(v) => updateCold({ d14_days: v })}
+            delayUnit="días después"
+            delayMin={7}
+            delayMax={30}
+          />
+          <ReminderRow
+            title="Último intento"
+            desc="Cierre amable. Si tampoco responde, no insistimos más."
+            enabled={fu.cold_followups.d30_enabled}
+            onToggle={(v) => updateCold({ d30_enabled: v })}
+            delay={fu.cold_followups.d30_days}
+            onDelayChange={(v) => updateCold({ d30_days: v })}
+            delayUnit="días después"
+            delayMin={15}
+            delayMax={90}
+          />
+        </div>
+      </Card>
+
+      {/* Reactivación */}
+      <Card>
+        <div className="mb-3 flex items-start gap-2">
+          <RotateCcw className="mt-0.5 h-4 w-4 text-cyan-400" />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-white">Reactivación de pacientes</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Para quienes ya vinieron pero hace tiempo no aparecen — ideal para limpiezas o controles.
+            </p>
+          </div>
+        </div>
+        <ReminderRow
+          title="Reactivar al cabo de N meses"
+          desc="Mensaje cálido recordando que sigues ahí."
+          enabled={fu.reactivation.enabled}
+          onToggle={(v) => updateReact({ enabled: v })}
+          delay={fu.reactivation.months_inactive}
+          onDelayChange={(v) => updateReact({ months_inactive: v })}
+          delayUnit="meses sin venir"
+          delayMin={1}
+          delayMax={12}
+        />
+      </Card>
+
+      {/* Plantillas (collapsible) */}
+      <Card>
+        <details className="group">
+          <summary className="flex cursor-pointer items-center justify-between gap-2 list-none [&::-webkit-details-marker]:hidden">
+            <div className="flex items-start gap-2">
+              <MessageSquare className="mt-0.5 h-4 w-4 text-lime-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-white">Plantillas / voz del doctor</h3>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {fu.ai_generated
+                    ? 'Sirven como guía de voz. La IA respeta el espíritu del texto.'
+                    : 'Se envían tal cual. Soporta '}
+                  {!fu.ai_generated && (
+                    <>
+                      <code className="text-lime-400">{`{{name}}`}</code>,{' '}
+                      <code className="text-lime-400">{`{{clinic}}`}</code>,{' '}
+                      <code className="text-lime-400">{`{{assistant}}`}</code>.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-180" />
+          </summary>
+
+          <div className="mt-4 space-y-3">
+            {TEMPLATE_LABELS.map((t) => (
+              <div key={t.key}>
+                <label className="mb-1 block text-xs font-medium text-zinc-300">{t.label}</label>
+                <textarea
+                  rows={2}
+                  value={fu.templates[t.key]}
+                  onChange={(e) => updateTemplate(t.key, e.target.value)}
+                  placeholder={t.placeholder}
+                  className="w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-lime-500/50"
+                />
+                <p className="mt-0.5 text-right text-[10px] text-zinc-500">
+                  {fu.templates[t.key].length}/400
+                </p>
+              </div>
+            ))}
+          </div>
+        </details>
+      </Card>
+    </div>
+  )
+}
+
 export default function Settings() {
   const { config, refresh } = useClinic()
   const [active, setActive] = useState<SectionId>('general')
@@ -262,6 +668,9 @@ export default function Settings() {
         vision_focus: config.vision_focus ?? [],
         vision_auto_suggest: config.vision_auto_suggest ?? true,
         vision_disclaimer: config.vision_disclaimer ?? '',
+        followup: mergeFollowup(
+          (config as unknown as { followup_config?: Partial<FollowupForm> }).followup_config,
+        ),
       }
       setForm(next)
       setInitial(next)
@@ -280,6 +689,7 @@ export default function Settings() {
       services:
         d(form.treatments, initial.treatments) || d(form.escalate_on, initial.escalate_on),
       schedule: d(form.schedule, initial.schedule),
+      followups: d(form.followup, initial.followup),
       vision:
         d(form.vision_enabled, initial.vision_enabled) ||
         d(form.vision_sensitivity, initial.vision_sensitivity) ||
@@ -328,6 +738,11 @@ export default function Settings() {
       if (form.claude_api_key) body.claude_api_key = form.claude_api_key
       if (form.openai_api_key) body.openai_api_key = form.openai_api_key
       if (form.elevenlabs_api_key) body.elevenlabs_api_key = form.elevenlabs_api_key
+
+      // followup_config: solo mandamos si cambió (el backend hace merge profundo)
+      if (JSON.stringify(form.followup) !== JSON.stringify(initial.followup)) {
+        body.followup_config = form.followup
+      }
 
       const res = await api.patch('/api/clinics/me/config', body)
       if (res.error) {
@@ -611,6 +1026,9 @@ export default function Settings() {
             </Card>
           </div>
         )
+
+      case 'followups':
+        return renderFollowupsSection(form, setForm)
 
       case 'vision':
         return (

@@ -10,6 +10,49 @@ import { z } from 'zod'
 import { encrypt, decrypt, maskApiKey } from '../services/crypto.js'
 
 const scheduleStringRegex = /^(\d{2}:\d{2}-\d{2}:\d{2})$/
+const hhmmRegex = /^([01]\d|2[0-3]):[0-5]\d$/
+
+// Zod schema para FollowUpConfig — TODO opcional para que el frontend pueda
+// mandar solo el subset que cambió. El backend hace merge contra el actual.
+const followupConfigSchema = z.object({
+  appointment_reminders: z.object({
+    h24_enabled: z.boolean(),
+    h2_enabled: z.boolean(),
+    h2_minutes_before: z.number().int().min(15).max(240),
+    post_visit_enabled: z.boolean(),
+    post_visit_minutes_after: z.number().int().min(15).max(240),
+    review_request_enabled: z.boolean(),
+    review_request_hours_after: z.number().int().min(6).max(72),
+  }).partial().optional(),
+  cold_followups: z.object({
+    d7_enabled:  z.boolean(),
+    d7_days:     z.number().int().min(1).max(21),
+    d14_enabled: z.boolean(),
+    d14_days:    z.number().int().min(7).max(30),
+    d30_enabled: z.boolean(),
+    d30_days:    z.number().int().min(15).max(90),
+  }).partial().optional(),
+  reactivation: z.object({
+    enabled: z.boolean(),
+    months_inactive: z.number().int().min(1).max(12),
+  }).partial().optional(),
+  ai_generated: z.boolean().optional(),
+  quiet_hours: z.object({
+    enabled: z.boolean(),
+    from: z.string().regex(hhmmRegex),
+    to: z.string().regex(hhmmRegex),
+  }).partial().optional(),
+  templates: z.object({
+    pre_appt_24h:      z.string().max(400),
+    pre_appt_2h:       z.string().max(400),
+    post_appt_1h:      z.string().max(400),
+    post_appt_review:  z.string().max(400),
+    cold_7d:           z.string().max(400),
+    cold_14d:          z.string().max(400),
+    cold_30d:          z.string().max(400),
+    reactivation:      z.string().max(400),
+  }).partial().optional(),
+}).partial()
 
 // ── Perfil de la clínica (datos editables desde el menú de usuario) ──
 const updateClinicSchema = z.object({
@@ -51,6 +94,8 @@ const updateConfigSchema = z.object({
   claude_api_key: z.string().min(20).max(200).optional(),
   openai_api_key: z.string().min(20).max(200).optional(),
   elevenlabs_api_key: z.string().min(20).max(200).optional(),
+  // Seguimientos y recordatorios (jsonb single column)
+  followup_config: followupConfigSchema.optional(),
 })
 
 function safeMask(enc: string | null): string | null {
@@ -131,7 +176,7 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
       })
     }
 
-    const { claude_api_key, openai_api_key, elevenlabs_api_key, ...rest } = parsed.data
+    const { claude_api_key, openai_api_key, elevenlabs_api_key, followup_config: incomingFollowup, ...rest } = parsed.data
     const updates: Record<string, unknown> = { ...rest }
 
     if (claude_api_key) {
@@ -142,6 +187,26 @@ export default async function clinicsRoutes(fastify: FastifyInstance) {
     }
     if (elevenlabs_api_key) {
       updates['elevenlabs_key_enc'] = encrypt(elevenlabs_api_key)
+    }
+
+    // Merge profundo de followup_config: el frontend manda solo lo que cambió.
+    // Cargamos el valor actual de la BD y hacemos merge por sub-objeto.
+    if (incomingFollowup) {
+      const { data: currentRow } = await req.supabase
+        .from('clinic_config')
+        .select('followup_config')
+        .eq('clinic_id', req.tenant.clinic_id)
+        .single<{ followup_config: Record<string, Record<string, unknown>> | null }>()
+      const current = currentRow?.followup_config ?? {}
+      const merged: Record<string, unknown> = { ...current }
+      for (const [k, v] of Object.entries(incomingFollowup)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          merged[k] = { ...(current[k] ?? {}), ...v }
+        } else {
+          merged[k] = v
+        }
+      }
+      updates['followup_config'] = merged
     }
 
     if (Object.keys(updates).length === 0) {

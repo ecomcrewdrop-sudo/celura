@@ -9,7 +9,8 @@ import { createClient } from '@supabase/supabase-js'
 import { sendMessageWithRetry } from './whatsapp.js'
 import { decrypt } from './crypto.js'
 import Anthropic from '@anthropic-ai/sdk'
-import type { Lead, ClinicConfig, FollowUp } from '../types/tenant.js'
+import type { Lead, ClinicConfig, FollowUp, FollowUpConfig } from '../types/tenant.js'
+import { DEFAULT_FOLLOWUP_CONFIG } from '../types/tenant.js'
 
 // ── Redis connection (Upstash o local) ──
 const redis = new IORedis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
@@ -49,15 +50,105 @@ const followUpQueue = new Queue('celura-followups', {
   },
 })
 
+// ── Resuelve la config de seguimientos con defaults seguros ──
+//    El JSONB puede llegar incompleto (clínicas viejas, doctor que
+//    todavía no abrió Settings → Seguimientos). Mergeamos contra los
+//    defaults para no devolver `undefined` en campos críticos.
+function resolveFollowupConfig(config: ClinicConfig): FollowUpConfig {
+  const raw = (config.followup_config ?? {}) as Partial<FollowUpConfig>
+  return {
+    appointment_reminders: { ...DEFAULT_FOLLOWUP_CONFIG.appointment_reminders, ...raw.appointment_reminders },
+    cold_followups: { ...DEFAULT_FOLLOWUP_CONFIG.cold_followups, ...raw.cold_followups },
+    reactivation: { ...DEFAULT_FOLLOWUP_CONFIG.reactivation, ...raw.reactivation },
+    ai_generated: raw.ai_generated ?? DEFAULT_FOLLOWUP_CONFIG.ai_generated,
+    quiet_hours: { ...DEFAULT_FOLLOWUP_CONFIG.quiet_hours, ...raw.quiet_hours },
+    templates: { ...DEFAULT_FOLLOWUP_CONFIG.templates, ...raw.templates },
+  }
+}
+
+// ── Quiet hours: corre la entrega al próximo slot permitido ──
+//    Si el job cae dentro de la ventana silenciosa (típicamente 21:00-08:00),
+//    devolvemos el delay ajustado al primer minuto fuera. NO bloquea: solo
+//    desplaza para no molestar al paciente.
+//
+//    `from`/`to` están en TZ de la clínica. Pasamos también el TZ para que
+//    el cálculo se haga sin asumir UTC del server.
+function applyQuietHours(
+  baseDelayMs: number,
+  quiet: FollowUpConfig['quiet_hours'],
+  timezone: string,
+): number {
+  if (!quiet.enabled) return baseDelayMs
+  const target = new Date(Date.now() + baseDelayMs)
+
+  const hhmmInTz = (d: Date): { h: number; m: number; minutes: number } => {
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(d)
+      const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
+      const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10)
+      return { h, m, minutes: h * 60 + m }
+    } catch {
+      return { h: d.getHours(), m: d.getMinutes(), minutes: d.getHours() * 60 + d.getMinutes() }
+    }
+  }
+
+  const parseHHMM = (s: string): number => {
+    const parts = s.split(':').map((n) => parseInt(n, 10))
+    const h = parts[0] ?? 0
+    const m = parts[1] ?? 0
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+  }
+
+  const fromMin = parseHHMM(quiet.from)
+  const toMin = parseHHMM(quiet.to)
+  const targetMin = hhmmInTz(target).minutes
+
+  const inWindow =
+    fromMin <= toMin
+      ? targetMin >= fromMin && targetMin < toMin
+      : targetMin >= fromMin || targetMin < toMin   // cruza medianoche
+
+  if (!inWindow) return baseDelayMs
+
+  // Minutos hasta `to`. Si el rango cruza medianoche y target está después de `from`,
+  // sumamos las horas restantes del día + `to`.
+  let minutesToWait: number
+  if (fromMin <= toMin) {
+    minutesToWait = toMin - targetMin
+  } else if (targetMin >= fromMin) {
+    minutesToWait = 24 * 60 - targetMin + toMin
+  } else {
+    minutesToWait = toMin - targetMin
+  }
+  return baseDelayMs + minutesToWait * 60_000
+}
+
 // ── Genera el mensaje de seguimiento con IA ──
 async function generateFollowUpMessage(
   config: ClinicConfig,
   lead: Lead,
   type: FollowUp['type']
 ): Promise<string> {
+  const fu = resolveFollowupConfig(config)
+  const template = fu.templates[type as keyof FollowUpConfig['templates']]?.trim() ?? ''
+
+  // Modo plantilla fija: si el doctor desactivó IA o si el tipo tiene un
+  // template con variables {{...}}, lo enviamos tal cual con substitución.
+  if (!fu.ai_generated && template) {
+    return template
+      .replace(/\{\{\s*name\s*\}\}/g, lead.name ?? '')
+      .replace(/\{\{\s*assistant\s*\}\}/g, config.assistant_name)
+      .replace(/\{\{\s*clinic\s*\}\}/g, 'la clínica')
+  }
+
   if (!config.claude_key_enc) {
     // Fallback sin IA si no hay key configurada
-    return getFallbackMessage(config, lead, type)
+    return template || getFallbackMessage(config, lead, type)
   }
 
   const claudeKey = decrypt(config.claude_key_enc)
@@ -75,11 +166,16 @@ async function generateFollowUpMessage(
     custom:       `Escribe un mensaje de seguimiento para ${lead.name ?? 'el paciente'}. Tono: ${config.tone}. Breve y útil.`,
   }
 
+  // Si hay template del doctor, lo inyectamos como guía/voz dentro del prompt.
+  const promptWithTemplate = template
+    ? `${prompts[type]}\n\nUsa esta línea como guía de voz / contenido (puedes ajustarla pero respeta el espíritu):\n"${template}"`
+    : prompts[type]
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 150,
     system: `Eres ${config.assistant_name}, asistente de una clínica dental. Escribes mensajes de WhatsApp cortos, cálidos y humanos. NUNCA menciones que eres IA.`,
-    messages: [{ role: 'user', content: prompts[type] }],
+    messages: [{ role: 'user', content: promptWithTemplate }],
   })
 
   return response.content
@@ -216,6 +312,28 @@ export async function cancelAppointmentFollowUps(
     .eq('status', 'pending')
 }
 
+// Carga la config y timezone para una clínica en un solo round-trip.
+async function loadClinicCtx(clinicId: string): Promise<{
+  fu: FollowUpConfig
+  timezone: string
+} | null> {
+  const [{ data: cfg }, { data: clinicRow }] = await Promise.all([
+    supabaseAdmin
+      .from('clinic_config')
+      .select('followup_config')
+      .eq('clinic_id', clinicId)
+      .single<{ followup_config: FollowUpConfig | null }>(),
+    supabaseAdmin
+      .from('clinics')
+      .select('timezone')
+      .eq('id', clinicId)
+      .single<{ timezone: string | null }>(),
+  ])
+  if (!cfg) return null
+  const fu = resolveFollowupConfig({ followup_config: cfg.followup_config } as ClinicConfig)
+  return { fu, timezone: clinicRow?.timezone || 'America/Mexico_City' }
+}
+
 // ── Programa los seguimientos apropiados según el contexto ──
 export async function scheduleFollowUps(
   clinicId: string,
@@ -223,20 +341,25 @@ export async function scheduleFollowUps(
   intent: string,
   isFirstMessage: boolean
 ): Promise<void> {
-  const MS = {
-    min: 60_000,
-    hour: 3_600_000,
-    day: 86_400_000,
-  }
+  const MS = { day: 86_400_000 }
+  const ctx = await loadClinicCtx(clinicId)
+  if (!ctx) return
+  const { fu, timezone } = ctx
+  const cold = fu.cold_followups
+  const shift = (ms: number) => applyQuietHours(ms, fu.quiet_hours, timezone)
 
-  // Si el lead acaba de llegar y no respondió en 24h → cold follow-up
   if (isFirstMessage) {
-    await enqueueFollowUp(clinicId, leadId, 'cold_7d', 7 * MS.day)
-    await enqueueFollowUp(clinicId, leadId, 'cold_14d', 14 * MS.day)
-    await enqueueFollowUp(clinicId, leadId, 'cold_30d', 30 * MS.day)
+    if (cold.d7_enabled) {
+      await enqueueFollowUp(clinicId, leadId, 'cold_7d', shift(cold.d7_days * MS.day))
+    }
+    if (cold.d14_enabled) {
+      await enqueueFollowUp(clinicId, leadId, 'cold_14d', shift(cold.d14_days * MS.day))
+    }
+    if (cold.d30_enabled) {
+      await enqueueFollowUp(clinicId, leadId, 'cold_30d', shift(cold.d30_days * MS.day))
+    }
   }
 
-  // Si mostró intención de agendar → cancelar cold, esperar confirmación
   if (intent === 'schedule') {
     await cancelLeadFollowUps(clinicId, leadId, ['cold_7d', 'cold_14d', 'cold_30d'])
   }
@@ -249,22 +372,31 @@ export async function scheduleAppointmentReminders(
   appointmentId: string,
   appointmentDate: Date
 ): Promise<void> {
+  const ctx = await loadClinicCtx(clinicId)
+  if (!ctx) return
+  const { fu, timezone } = ctx
+  const ar = fu.appointment_reminders
+  const shift = (ms: number) => applyQuietHours(ms, fu.quiet_hours, timezone)
+
   const now = Date.now()
   const apptTime = appointmentDate.getTime()
-
   const h24 = apptTime - 24 * 3_600_000
-  const h2  = apptTime - 2 * 3_600_000
-  const post = apptTime + 1 * 3_600_000
+  const hN  = apptTime - ar.h2_minutes_before * 60_000
+  const postVisit = apptTime + ar.post_visit_minutes_after * 60_000
+  const reviewReq = postVisit + ar.review_request_hours_after * 3_600_000
 
-  // Solo encolar si el tiempo futuro es en el futuro
-  if (h24 > now) {
-    await enqueueFollowUp(clinicId, leadId, 'pre_appt_24h', h24 - now, appointmentId)
+  if (ar.h24_enabled && h24 > now) {
+    await enqueueFollowUp(clinicId, leadId, 'pre_appt_24h', shift(h24 - now), appointmentId)
   }
-  if (h2 > now) {
-    await enqueueFollowUp(clinicId, leadId, 'pre_appt_2h', h2 - now, appointmentId)
+  if (ar.h2_enabled && hN > now) {
+    await enqueueFollowUp(clinicId, leadId, 'pre_appt_2h', shift(hN - now), appointmentId)
   }
-  await enqueueFollowUp(clinicId, leadId, 'post_appt_1h', post - now, appointmentId)
-  await enqueueFollowUp(clinicId, leadId, 'post_appt_review', (post + 24 * 3_600_000) - now, appointmentId)
+  if (ar.post_visit_enabled && postVisit > now) {
+    await enqueueFollowUp(clinicId, leadId, 'post_appt_1h', shift(postVisit - now), appointmentId)
+  }
+  if (ar.review_request_enabled && reviewReq > now) {
+    await enqueueFollowUp(clinicId, leadId, 'post_appt_review', shift(reviewReq - now), appointmentId)
+  }
 
   // Cancelar cold follow-ups porque el lead agendó
   await cancelLeadFollowUps(clinicId, leadId, ['cold_7d', 'cold_14d', 'cold_30d', 'reactivation'])

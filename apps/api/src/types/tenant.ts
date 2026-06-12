@@ -52,6 +52,7 @@ export interface ClinicConfig {
   vision_focus: string[]
   vision_auto_suggest: boolean
   vision_disclaimer: string
+  followup_config: FollowUpConfig
   created_at: string
   updated_at: string
 }
@@ -72,6 +73,92 @@ export interface VisionAnalysis {
   patient_message: string         // mensaje empático listo para enviar al paciente
   needs_consultation: boolean
   analyzed_at: string
+}
+
+// ── Configuración de seguimientos / recordatorios ────────────
+// Vive en `clinic_config.followup_config` como JSONB. El doctor
+// la edita desde Settings → Seguimientos. El scheduler la lee
+// con defaults seguros (ver DEFAULT_FOLLOWUP_CONFIG).
+export interface FollowUpConfig {
+  appointment_reminders: {
+    h24_enabled: boolean
+    h2_enabled: boolean
+    h2_minutes_before: number          // 15-240
+    post_visit_enabled: boolean
+    post_visit_minutes_after: number   // 15-240
+    review_request_enabled: boolean
+    review_request_hours_after: number // 6-72
+  }
+  cold_followups: {
+    d7_enabled: boolean;  d7_days: number
+    d14_enabled: boolean; d14_days: number
+    d30_enabled: boolean; d30_days: number
+  }
+  reactivation: {
+    enabled: boolean
+    months_inactive: number   // 1-12
+  }
+  /** Si true → mensajes generados por IA. Si false → usa template fijo. */
+  ai_generated: boolean
+  quiet_hours: {
+    enabled: boolean
+    from: string  // HH:MM (24h)
+    to: string    // HH:MM (24h, puede cruzar medianoche: ej "22:00" → "08:00")
+  }
+  /**
+   * Instrucciones / plantillas por tipo. Si `ai_generated` está activo:
+   *   → se inyecta como hint adicional en el prompt (el modelo lo respeta).
+   * Si está desactivado:
+   *   → se envía tal cual (soporta {{name}}, {{clinic}}, {{assistant}}).
+   */
+  templates: Partial<Record<
+    | 'pre_appt_24h'
+    | 'pre_appt_2h'
+    | 'post_appt_1h'
+    | 'post_appt_review'
+    | 'cold_7d'
+    | 'cold_14d'
+    | 'cold_30d'
+    | 'reactivation',
+    string
+  >>
+}
+
+export const DEFAULT_FOLLOWUP_CONFIG: FollowUpConfig = {
+  appointment_reminders: {
+    h24_enabled: true,
+    h2_enabled: true,
+    h2_minutes_before: 120,
+    post_visit_enabled: true,
+    post_visit_minutes_after: 60,
+    review_request_enabled: true,
+    review_request_hours_after: 24,
+  },
+  cold_followups: {
+    d7_enabled: true,  d7_days: 7,
+    d14_enabled: true, d14_days: 14,
+    d30_enabled: true, d30_days: 30,
+  },
+  reactivation: {
+    enabled: false,
+    months_inactive: 3,
+  },
+  ai_generated: true,
+  quiet_hours: {
+    enabled: true,
+    from: '21:00',
+    to: '08:00',
+  },
+  templates: {
+    pre_appt_24h:      '',
+    pre_appt_2h:       '',
+    post_appt_1h:      '',
+    post_appt_review:  '',
+    cold_7d:           '',
+    cold_14d:          '',
+    cold_30d:          '',
+    reactivation:      '',
+  },
 }
 
 export interface WeeklySchedule {

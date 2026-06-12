@@ -7,7 +7,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { type WAMessage } from './whatsapp.js'
 import { sendHumanlike } from './humanizer.js'
-import { scheduleFollowUps } from './scheduler.js'
+import { scheduleFollowUps, scheduleAppointmentReminders } from './scheduler.js'
 import { runWorkflowsForMessage, type EngineResult } from './workflow-engine.js'
 import { AIClient } from './ai-provider.js'
 import { trackErrorSync } from './error-tracker.js'
@@ -1101,6 +1101,22 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         })
         .eq('id', lead.id),
     ])
+
+    // 12a-pre. Encolar los recordatorios pre/post-cita usando la config
+    //          de seguimientos del doctor. Si la cita ya existía (anti-dup),
+    //          no re-encolamos para no duplicar.
+    if (newAppointmentId && appointmentExtracted) {
+      try {
+        await scheduleAppointmentReminders(
+          clinic_id,
+          lead.id,
+          newAppointmentId,
+          new Date(appointmentExtracted.scheduled_at),
+        )
+      } catch (err) {
+        console.error('[Brain] No se pudieron encolar los recordatorios de cita:', err)
+      }
+    }
 
     // 12a. Notificar al doctor en cuanto se cierre la cita.
     if (newAppointmentId && appointmentExtracted) {
