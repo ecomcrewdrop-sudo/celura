@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { useClinic } from '@/hooks/useClinic'
+import { DENTAL_PROMPT_TEMPLATE } from '@/lib/promptTemplate'
 import PageHeader from '@/components/PageHeader'
 import Card from '@/components/Card'
 import Button from '@/components/Button'
@@ -887,19 +888,99 @@ export default function Settings() {
 
             <Card>
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white">Prompt personalizado</h3>
-                <span className="text-[11px] text-zinc-500">{form.custom_prompt.length}/2000</span>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-lime-400" />
+                  <h3 className="text-sm font-semibold text-white">Prompt del asistente</h3>
+                </div>
+                <span className="text-[11px] text-zinc-500">{form.custom_prompt.length.toLocaleString()}/12.000</span>
               </div>
+
+              {/* Aviso de obligatoriedad */}
+              <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+                  <div className="space-y-1 text-[12px] leading-relaxed">
+                    <p className="font-semibold text-amber-200">
+                      Este prompt es la personalidad y el cerebro de tu asistente.
+                    </p>
+                    <p className="text-amber-100/80">
+                      Define el tono, las reglas, los tratamientos, los rangos de precio y cómo
+                      cierra citas. Sin él, la IA usa solo el comportamiento por defecto.
+                      <strong className="text-amber-100"> Es obligatorio que lo configures con tus datos reales.</strong>
+                    </p>
+                    <p className="text-amber-100/70">
+                      Carga la plantilla base, reemplaza los <code className="rounded bg-amber-500/15 px-1 text-amber-200">[[VARIABLES]]</code> con tu información,
+                      ajusta lo que quieras y guarda. Tus instrucciones tienen prioridad absoluta sobre cualquier comportamiento por defecto.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones de plantilla */}
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (form.custom_prompt.trim().length > 0) {
+                      if (!window.confirm('Esto reemplazará tu prompt actual con la plantilla base. ¿Continuar?')) return
+                    }
+                    setForm({ ...form, custom_prompt: DENTAL_PROMPT_TEMPLATE.slice(0, 12000) })
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-lime-500/40 bg-lime-500/10 px-3 py-1.5 text-[12px] font-medium text-lime-300 transition hover:bg-lime-500/20"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Cargar plantilla base
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(DENTAL_PROMPT_TEMPLATE)
+                    } catch {}
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-dark-500 bg-dark-700 px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-dark-600"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar plantilla
+                </button>
+                {form.custom_prompt.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('¿Borrar el prompt actual?')) {
+                        setForm({ ...form, custom_prompt: '' })
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-1.5 text-[12px] font-medium text-red-300 transition hover:bg-red-500/15"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
               <textarea
                 value={form.custom_prompt}
-                onChange={(e) => setForm({ ...form, custom_prompt: e.target.value.slice(0, 2000) })}
-                rows={6}
-                className="w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2.5 text-sm text-white placeholder-zinc-500 outline-none focus:border-lime-500/50"
-                placeholder="Instrucciones adicionales para el asistente. Ej: 'Siempre menciona que aceptamos seguro Sura. Si preguntan por brackets, recomienda ortodoncia invisible.'"
+                onChange={(e) => setForm({ ...form, custom_prompt: e.target.value.slice(0, 12000) })}
+                rows={18}
+                spellCheck={false}
+                className="w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white placeholder-zinc-500 outline-none focus:border-lime-500/50"
+                placeholder={`Pega aquí tu prompt personalizado.\n\nSi no sabes por dónde empezar, presiona "Cargar plantilla base" arriba y reemplaza las variables [[…]] con tus datos reales.`}
               />
-              <p className="mt-2 text-[11px] text-zinc-500">
-                Estas instrucciones se inyectan en cada respuesta de la IA. Mantén entre 50 y 500 caracteres.
-              </p>
+              <div className="mt-3 grid gap-2 text-[11px] text-zinc-500 sm:grid-cols-2">
+                <p>
+                  <strong className="text-zinc-300">Inyección:</strong> tu prompt se aplica en cada respuesta de la IA con prioridad absoluta.
+                </p>
+                <p>
+                  <strong className="text-zinc-300">Variables sugeridas:</strong> <code className="rounded bg-dark-600 px-1 text-zinc-300">[[NOMBRE_CLINICA]]</code>, <code className="rounded bg-dark-600 px-1 text-zinc-300">[[NOMBRE_DOCTOR]]</code>, <code className="rounded bg-dark-600 px-1 text-zinc-300">[[CIUDAD]]</code>, <code className="rounded bg-dark-600 px-1 text-zinc-300">[[RANGOS_PRECIOS]]</code>.
+                </p>
+                <p>
+                  <strong className="text-zinc-300">Buenas prácticas:</strong> mensajes ≤ 35 palabras, una pregunta por turno, tono humano.
+                </p>
+                <p>
+                  <strong className="text-zinc-300">Recomendado:</strong> entre 3.000 y 9.000 caracteres para un asistente robusto.
+                </p>
+              </div>
             </Card>
           </div>
         )

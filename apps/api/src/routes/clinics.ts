@@ -80,7 +80,7 @@ const updateConfigSchema = z.object({
     })
     .partial()
     .optional(),
-  custom_prompt: z.string().max(2000).optional(),
+  custom_prompt: z.string().max(12000).optional(),
   escalate_on: z.array(z.string().min(1).max(80)).max(30).optional(),
   // Análisis clínico de imágenes (Claude Vision)
   vision_enabled: z.boolean().optional(),
