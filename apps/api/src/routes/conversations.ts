@@ -6,7 +6,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { sendMessage, getSessionStatus } from '../services/whatsapp.js'
+import { sendMessageWithRetry, getSessionStatus } from '../services/whatsapp.js'
 import type { Message, ConversationContext } from '../types/tenant.js'
 
 const idParam = z.object({ id: z.string().uuid('ID inválido') })
@@ -228,9 +228,11 @@ export default async function conversationsRoutes(fastify: FastifyInstance) {
 
     if (!lead) return reply.status(404).send({ error: 'Lead no encontrado' })
 
-    const sent = await sendMessage(req.tenant.clinic_id, lead.phone, body.data.text)
+    const sent = await sendMessageWithRetry(req.tenant.clinic_id, lead.phone, body.data.text)
     if (!sent) {
-      return reply.status(502).send({ error: 'No se pudo enviar el mensaje a WhatsApp' })
+      return reply.status(502).send({
+        error: 'No se pudo entregar el mensaje a WhatsApp tras varios intentos. Verifica la conexión del asistente.',
+      })
     }
 
     // Persistir en la conversación

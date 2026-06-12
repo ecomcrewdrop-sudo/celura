@@ -13,6 +13,7 @@ import {
   getSessionStatus,
   getSessionPhone,
   closeSession,
+  forceReconnect,
   waEvents,
 } from '../services/whatsapp.js'
 
@@ -205,5 +206,23 @@ export default async function whatsappRoutes(fastify: FastifyInstance) {
     fastify.invalidateTenantCache(req.tenant.owner_id)
 
     return reply.send({ success: true, message: 'WhatsApp desconectado · datos limpiados' })
+  })
+
+  // ── POST /whatsapp/reconnect ──────────────────────────────
+  // Reinicia el socket sin invalidar credenciales. Útil cuando Baileys
+  // queda "zombi" (acepta sends pero no despacha) por una sesión vieja.
+  // El doctor NO necesita escanear QR otra vez.
+  fastify.post('/whatsapp/reconnect', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { clinic_id } = req.tenant
+    try {
+      await forceReconnect(clinic_id)
+      return reply.send({
+        success: true,
+        message: 'Reconexión iniciada. En unos segundos el asistente volverá a estar listo.',
+      })
+    } catch (err) {
+      fastify.log.error(`Error en forceReconnect ${clinic_id}: ${err instanceof Error ? err.message : String(err)}`)
+      return reply.status(500).send({ error: 'No se pudo reiniciar la sesión de WhatsApp' })
+    }
   })
 }

@@ -97,6 +97,8 @@ export default function WhatsApp() {
   const [qrCountdown, setQrCountdown] = useState<number>(QR_TTL_SEC)
   const [loading, setLoading] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [reconnectMsg, setReconnectMsg] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [copiedPhone, setCopiedPhone] = useState(false)
@@ -205,6 +207,25 @@ export default function WhatsApp() {
     localStorage.removeItem(CONNECTED_AT_KEY)
     setConnectedAt(null)
     await refresh()
+  }
+
+  const doReconnect = async () => {
+    setReconnecting(true)
+    setReconnectMsg(null)
+    const r = await api.post<{ success?: boolean; error?: string; message?: string }>(
+      '/api/whatsapp/reconnect',
+      {},
+    )
+    if (r.data?.success) {
+      setReconnectMsg('Reconexión iniciada · revisará el estado en unos segundos')
+      // Repoll agresivo para confirmar que volvió a 'connected'
+      setPolling(true)
+      setTimeout(() => setReconnectMsg(null), 6000)
+    } else {
+      setReconnectMsg(r.data?.error ?? 'No se pudo reiniciar la sesión')
+      setTimeout(() => setReconnectMsg(null), 6000)
+    }
+    setReconnecting(false)
   }
 
   const cancelQR = () => {
@@ -341,9 +362,25 @@ export default function WhatsApp() {
                         </div>
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(true)}>
-                      <Power className="h-3.5 w-3.5" /> Desconectar
-                    </Button>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={doReconnect}
+                          loading={reconnecting}
+                          title="Reinicia la sesión sin desvincular el QR. Útil si el asistente acepta mensajes pero no responde."
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" /> Forzar reconexión
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(true)}>
+                          <Power className="h-3.5 w-3.5" /> Desconectar
+                        </Button>
+                      </div>
+                      {reconnectMsg && (
+                        <span className="text-[11px] text-zinc-400">{reconnectMsg}</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Numero + acciones */}

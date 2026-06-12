@@ -72,6 +72,12 @@ const activeSessions = new Map<string, WASocket>()
 const pendingQRs = new Map<string, string>()
 // Map de status: clinic_id → 'connecting' | 'qr_ready' | 'connected' | 'disconnected'
 const sessionStatus = new Map<string, string>()
+// Map de envíos pendientes de ACK: messageId → resolver
+// Cuando Baileys despacha de verdad un mensaje OUTGOING dispara messages.upsert
+// con type='notify'. Si llega el ACK dentro del timeout, resolvemos true.
+// Si NO llega (silent buffer / session zombie), resolvemos false.
+const pendingSendAcks = new Map<string, (delivered: boolean) => void>()
+const SEND_ACK_TIMEOUT_MS = 8_000
 
 const sessionsRoot = process.env['WA_SESSIONS_PATH'] ?? './sessions'
 const logger = pino({ level: 'silent' }) // silenciar logs de Baileys en producción
@@ -342,6 +348,18 @@ export async function startSession(
         waEvents.emit('message', waMsg)              // brain procesa y responde
       } else {
         console.log(`[WA] Out → ${waMsg.from_phone} (clinic ${clinicId}): "${waMsg.content.slice(0, 50)}"`)
+        // ── Resolver el ACK del envío correspondiente (si hay alguno esperando) ──
+        // Baileys garantiza que cuando un mensaje saliente REALMENTE entra a su
+        // pipeline de envío, emite messages.upsert(notify) con la key del mensaje.
+        // Si no llega ese upsert dentro del timeout, sendMessage devuelve false.
+        const ackId = msg.key.id
+        if (ackId) {
+          const resolver = pendingSendAcks.get(ackId)
+          if (resolver) {
+            pendingSendAcks.delete(ackId)
+            resolver(true)
+          }
+        }
         waEvents.emit('message:outgoing', waMsg)     // solo persistir
       }
     }
@@ -441,10 +459,12 @@ function phoneToJid(phone: string): string {
  * Envía un mensaje de texto a un número (un intento, sin retry).
  * Usar `sendMessageWithRetry` para el flujo de producción.
  *
- * Nota: Baileys a veces resuelve `sendMessage` sin lanzar aunque la
- * conexión esté caída (silently swallowed). Por eso comprobamos
- * `sessionStatus` antes de intentar — preferimos fallar rápido y
- * que el caller persista `delivered: false` que mentir.
+ * Nota: Baileys a veces resuelve `sendMessage` con un key.id pero el mensaje
+ * jamás se despacha (session keys corruptas, pre-key bundle no encontrado,
+ * etc). Por eso NO confiamos en el return de sock.sendMessage solo.
+ * Esperamos el ACK real: cuando Baileys despacha de verdad, emite
+ * messages.upsert(notify) con la misma key. Si el ACK no llega dentro
+ * del timeout, asumimos delivery fail.
  */
 export async function sendMessage(
   clinicId: string,
@@ -465,18 +485,47 @@ export async function sendMessage(
     return false
   }
 
+  let messageId: string | undefined
   try {
     const result = await sock.sendMessage(phoneToJid(toPhone), { text })
-    // Baileys devuelve undefined si la cola no aceptó el mensaje
-    if (!result?.key?.id) {
+    messageId = result?.key?.id ?? undefined
+    if (!messageId) {
       console.error(`[WA] sendMessage devolvió sin key.id para ${toPhone} — no se entregó`)
       return false
     }
-    return true
   } catch (err) {
     console.error(`[WA] Error enviando mensaje a ${toPhone}:`, err)
     return false
   }
+
+  // Esperar el ACK real: Baileys emite messages.upsert(notify) cuando el mensaje
+  // saliente entra realmente al pipeline de WhatsApp. Si no llega en SEND_ACK_TIMEOUT_MS
+  // asumimos que el mensaje quedó en limbo (session zombie / silent buffer).
+  const delivered = await new Promise<boolean>((resolve) => {
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(ok)
+    }
+
+    pendingSendAcks.set(messageId!, (ok) => finish(ok))
+
+    setTimeout(() => {
+      if (pendingSendAcks.has(messageId!)) {
+        pendingSendAcks.delete(messageId!)
+        console.error(
+          `[WA] Timeout esperando ACK de ${toPhone} (msg=${messageId}) tras ${SEND_ACK_TIMEOUT_MS}ms — Baileys aceptó pero no despachó`,
+        )
+        finish(false)
+      }
+    }, SEND_ACK_TIMEOUT_MS)
+  })
+
+  if (delivered) {
+    console.log(`[WA] ACK confirmado para ${toPhone} (msg=${messageId})`)
+  }
+  return delivered
 }
 
 /**
@@ -584,6 +633,34 @@ export async function closeSession(clinicId: string): Promise<void> {
     sessionStatus.set(clinicId, 'disconnected')
     resetPresenceFlag(clinicId)
   }
+}
+
+/**
+ * Reinicia la sesión SIN invalidar credenciales: corta el socket actual
+ * (útil cuando Baileys queda "zombi" aceptando sends pero sin despachar)
+ * y arranca una nueva conexión usando las mismas creds. El usuario NO
+ * necesita escanear QR otra vez.
+ */
+export async function forceReconnect(clinicId: string): Promise<void> {
+  console.log(`[WA] 🔄 Forzando reconexión de clinic ${clinicId}`)
+  const sock = activeSessions.get(clinicId)
+  if (sock) {
+    try {
+      // end() cierra el WS sin enviar logout → creds.json queda intacto
+      sock.end(new Error('force-reconnect'))
+    } catch (err) {
+      console.warn(`[WA] Error cerrando socket en forceReconnect:`, err)
+    }
+    activeSessions.delete(clinicId)
+    resetPresenceFlag(clinicId)
+  }
+  // Limpiar ACKs colgados de la sesión vieja
+  for (const [, resolver] of pendingSendAcks) resolver(false)
+  pendingSendAcks.clear()
+  sessionStatus.set(clinicId, 'connecting')
+
+  // Arranque inmediato — startSession releerá creds.json desde disco
+  await startSession(clinicId)
 }
 
 /**

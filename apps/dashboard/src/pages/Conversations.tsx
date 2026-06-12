@@ -571,8 +571,11 @@ export default function Conversations() {
     const isAudio = msg.type === 'audio'
     // Solo aplica a salientes: undefined = legacy/asumido entregado, false = falló
     const isUndelivered = isAssistant && msg.delivered === false
+    // Layout: prospecto (user) IZQUIERDA, asistente/panel (assistant) DERECHA.
+    // El doctor mira la conversación como si la viera desde fuera: lo que
+    // sale de SU clínica va a la derecha (como en WhatsApp tradicional).
     return (
-      <div key={i} className={`group flex gap-3 ${isAssistant ? '' : 'flex-row-reverse'}`}>
+      <div key={i} className={`group flex gap-3 ${isAssistant ? 'flex-row-reverse' : ''}`}>
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
           isUndelivered
             ? 'bg-red-500/15 ring-1 ring-red-500/30'
@@ -664,7 +667,7 @@ export default function Conversations() {
           {!isImage && !isAudio && (
             <button
               onClick={() => navigator.clipboard.writeText(msg.content).catch(() => {})}
-              className={`absolute -top-2 ${isAssistant ? '-right-2' : '-left-2'} hidden h-6 w-6 items-center justify-center rounded-full bg-dark-700 text-zinc-400 ring-1 ring-dark-500 hover:text-white group-hover:flex`}
+              className={`absolute -top-2 ${isAssistant ? '-left-2' : '-right-2'} hidden h-6 w-6 items-center justify-center rounded-full bg-dark-700 text-zinc-400 ring-1 ring-dark-500 hover:text-white group-hover:flex`}
               title="Copiar mensaje"
             >
               <Copy className="h-3 w-3" />
