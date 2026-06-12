@@ -20,6 +20,7 @@ import type {
   Message,
   ConversationContext,
   VisionAnalysis,
+  WeeklySchedule,
 } from '../types/tenant.js'
 import { SCORE_EVENTS } from '../types/tenant.js'
 
@@ -29,12 +30,113 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
+// ── Helpers de zona horaria / agenda ──────────────────────────
+// Devuelve una versión humana de la fecha actual en el TZ de la clínica.
+// Ej: "lunes 12 de junio de 2026, 14:32 (America/Bogota)"
+function formatNowInTz(now: Date, timezone: string): string {
+  try {
+    const fmt = new Intl.DateTimeFormat('es-CO', {
+      timeZone: timezone,
+      weekday: 'long',
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    return `${fmt.format(now)} (${timezone})`
+  } catch {
+    return `${now.toISOString()} (UTC)`
+  }
+}
+
+// Devuelve "lunes", "martes", … en el TZ de la clínica para un Date dado.
+function weekdayKeyInTz(date: Date, timezone: string): keyof WeeklySchedule | null {
+  try {
+    const wd = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+    })
+      .format(date)
+      .toLowerCase()
+    const map: Record<string, keyof WeeklySchedule> = {
+      mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat', sun: 'sun',
+    }
+    return map[wd] ?? null
+  } catch {
+    return null
+  }
+}
+
+// Genera los próximos 7 días con el horario de atención de la clínica.
+// Ej:
+//   lunes 12 jun: 08:00-18:00
+//   martes 13 jun: cerrado
+//   …
+function formatScheduleNext7Days(now: Date, timezone: string, schedule: WeeklySchedule | null): string {
+  if (!schedule) return 'Horario no configurado.'
+  const lines: string[] = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000)
+    const key = weekdayKeyInTz(d, timezone)
+    if (!key) continue
+    const slot = schedule[key]
+    const label = new Intl.DateTimeFormat('es-CO', {
+      timeZone: timezone,
+      weekday: 'long',
+      day: '2-digit',
+      month: 'short',
+    }).format(d)
+    const dayLabel = i === 0 ? `${label} (HOY)` : i === 1 ? `${label} (MAÑANA)` : label
+    lines.push(`  - ${dayLabel}: ${slot ?? 'CERRADO'}`)
+  }
+  return lines.join('\n')
+}
+
+// Resumen humano de citas próximas (siguientes 14 días) para que el modelo
+// nunca proponga un horario que ya está ocupado.
+function formatUpcomingAppointments(
+  appts: Array<{ scheduled_at: string; duration_min: number; treatment: string | null }>,
+  timezone: string,
+): string {
+  if (!appts.length) return '  (no hay citas agendadas en los próximos 14 días)'
+  return appts
+    .map((a) => {
+      const d = new Date(a.scheduled_at)
+      const label = new Intl.DateTimeFormat('es-CO', {
+        timeZone: timezone,
+        weekday: 'long',
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(d)
+      return `  - ${label} · ${a.duration_min}min · ${a.treatment ?? 'consulta general'}`
+    })
+    .join('\n')
+}
+
+interface PromptExtras {
+  now: Date
+  timezone: string
+  upcomingAppointments: Array<{ scheduled_at: string; duration_min: number; treatment: string | null }>
+}
+
 // ── Construye el system prompt personalizado para cada clínica ──
-function buildSystemPrompt(config: ClinicConfig, lead: Lead | null): string {
+function buildSystemPrompt(
+  config: ClinicConfig,
+  lead: Lead | null,
+  extras: PromptExtras,
+): string {
   const name = config.assistant_name
   const clinicName = 'la clínica'  // se puede agregar a config
 
   const treatmentList = config.treatments.join(', ')
+  const nowHuman = formatNowInTz(extras.now, extras.timezone)
+  const scheduleBlock = formatScheduleNext7Days(extras.now, extras.timezone, config.schedule)
+  const upcomingBlock = formatUpcomingAppointments(extras.upcomingAppointments, extras.timezone)
 
   const toneGuide = {
     formal: 'Habla de manera formal y profesional. Usa "usted". Sé preciso y claro.',
@@ -51,6 +153,15 @@ function buildSystemPrompt(config: ClinicConfig, lead: Lead | null): string {
     : ''
 
   return `Eres ${name}, el asistente personal de ${clinicName}.
+
+FECHA Y HORA ACTUAL: ${nowHuman}
+USA esta fecha como referencia absoluta. Si el paciente dice "mañana", "el viernes", "la próxima semana", calcúlalo desde esta fecha.
+
+HORARIO DE ATENCIÓN (próximos 7 días):
+${scheduleBlock}
+
+CITAS YA AGENDADAS EN LOS PRÓXIMOS 14 DÍAS (NO ofrezcas estos horarios):
+${upcomingBlock}
 
 IDENTIDAD:
 - Eres un asistente humano, capacitado y empático. NUNCA menciones que eres IA o un bot.
@@ -98,10 +209,15 @@ FOTOS Y ANÁLISIS CLÍNICO:
 - Si la calidad es 'baja' o no se ve bien, pide otra foto explicando cómo tomarla (boca abierta, buena luz).
 - Cierra invitando a una valoración presencial cuando sea pertinente.
 
-AGENDAR CITAS:
-- Cuando el paciente quiera agendar, pregunta qué día y horario le queda mejor.
-- Confirma con: "Perfecto, quedaste agendado para [día] a las [hora]. Te recuerdo el día antes."
-- No inventes horarios disponibles. Si no sabes la disponibilidad, di: "Permíteme verificar y te confirmo en segundos."
+AGENDAR CITAS (regla crítica):
+- TÚ tienes el horario y las citas ocupadas arriba. NO existe "te confirmo después" ni "déjame verificar y te aviso". NUNCA pongas la conversación en pausa.
+- Si el paciente pide un día/hora que está dentro del horario y no choca con una cita agendada, CONFIRMA EN ESE MISMO MENSAJE:
+  "Listo, agendado para [día día/mes] a las [HH:MM]. Te recuerdo el día antes."
+- Si el día está cerrado o el horario está ocupado, propón EN ESE MISMO MENSAJE 2 alternativas concretas del próximo día abierto que no choquen con citas agendadas.
+- Cuando el paciente acepte una de tus alternativas con un "sí", "dale", "perfecto", "esa me sirve", CONFIRMA en el siguiente mensaje con la fórmula exacta de arriba.
+- Si el paciente pide cambiar/reagendar, propón nuevas opciones igual de concretas — nunca "te confirmo después".
+- Usa formato 24h ("14:30", no "2:30 pm"). La duración por defecto es 60 minutos salvo que el doctor indique otra cosa.
+- Si el paciente no especifica tratamiento, asume "valoración" (15-30 min).
 
 ESCALAMIENTO:
 - Si el paciente menciona: ${config.escalate_on.join(', ')}, responde con empatía y prioridad máxima.
@@ -268,6 +384,120 @@ async function analyzeImage(
   }
 }
 
+// ── Extractor de acción de cita ───────────────────────────────
+// Después de generar la respuesta del asistente, hacemos una SEGUNDA llamada
+// al modelo (compacta, max_tokens bajo, JSON estricto) para decidir si en este
+// turno el paciente y el asistente acaban de CONFIRMAR una cita concreta.
+//
+// Devuelve `null` si no hay confirmación, o un objeto con la cita detectada.
+// El extractor es conservador: solo emite `confirmed` cuando la fecha+hora
+// está sin ambigüedad y el paciente ya aceptó.
+interface ExtractedAppointment {
+  scheduled_at: string         // ISO 8601 con offset (ej "2026-06-13T10:00:00-05:00")
+  duration_min: number
+  treatment: string | null
+  reasoning: string            // por qué el extractor decidió confirmar (para logs)
+}
+
+async function extractAppointmentAction(opts: {
+  ai: AIClient
+  recentMessages: Message[]
+  timezone: string
+  now: Date
+  schedule: WeeklySchedule | null
+  treatments: string[]
+}): Promise<ExtractedAppointment | null> {
+  // Limita el historial a los últimos 10 turnos — más que eso es ruido para el extractor.
+  const trimmed = opts.recentMessages.slice(-10)
+  const transcript = trimmed
+    .map((m) => `${m.role === 'assistant' ? 'ASISTENTE' : 'PACIENTE'}: ${m.content}`)
+    .join('\n')
+
+  const nowIso = opts.now.toISOString()
+  const nowHuman = formatNowInTz(opts.now, opts.timezone)
+  const scheduleBlock = opts.schedule
+    ? formatScheduleNext7Days(opts.now, opts.timezone, opts.schedule)
+    : 'Horario desconocido — usa juicio razonable.'
+
+  const system = `Eres un extractor de citas. Lees los últimos turnos de una conversación de WhatsApp entre un asistente de clínica dental y un paciente, y devuelves SOLO JSON.
+
+FECHA Y HORA ACTUAL: ${nowHuman}
+TIMESTAMP ISO ACTUAL: ${nowIso}
+TIMEZONE DE LA CLÍNICA: ${opts.timezone}
+
+HORARIO DE ATENCIÓN:
+${scheduleBlock}
+
+TRATAMIENTOS DISPONIBLES: ${opts.treatments.join(', ') || 'consultas dentales generales'}
+
+Tu única tarea es decidir si en ESTE turno acaba de quedar confirmada una cita.
+
+REGLAS:
+- "confirmed" SOLO cuando exista una fecha + hora SIN AMBIGÜEDAD y el paciente ya aceptó (explícita o implícitamente con "sí", "dale", "perfecto", "esa me sirve") o cuando el asistente acaba de confirmar con "Listo, agendado para…", "Quedaste agendado para…", "Perfecto, agendado…", etc.
+- Si el asistente solo está proponiendo opciones y el paciente aún no acepta → status="none".
+- Si solo hay interés general ("quiero agendar") sin fecha+hora concreta → status="none".
+- La fecha debe estar EN EL FUTURO respecto al timestamp actual.
+- Si la hora está fuera del horario de atención de ese día, igual extrae lo que entiendas pero marca confidence < 0.6.
+
+FORMATO DE SALIDA (JSON estricto, sin markdown, sin comentarios):
+{
+  "status": "confirmed" | "none",
+  "scheduled_at": "ISO 8601 con offset, ej 2026-06-13T10:00:00-05:00" | null,
+  "duration_min": 60,
+  "treatment": "nombre corto del tratamiento" | null,
+  "confidence": 0.0,
+  "reasoning": "1 frase corta explicando por qué"
+}
+
+Responde EXCLUSIVAMENTE con el JSON.`
+
+  try {
+    const res = await opts.ai.chat({
+      system,
+      messages: [
+        {
+          role: 'user',
+          content: `Últimos turnos:\n${transcript}\n\nDevuelve el JSON.`,
+        },
+      ],
+      maxTokens: 250,
+    })
+    const raw = res.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+    const parsed = JSON.parse(raw) as {
+      status?: string
+      scheduled_at?: string | null
+      duration_min?: number
+      treatment?: string | null
+      confidence?: number
+      reasoning?: string
+    }
+
+    if (parsed.status !== 'confirmed') return null
+    if (!parsed.scheduled_at) return null
+
+    const when = new Date(parsed.scheduled_at)
+    if (Number.isNaN(when.getTime())) return null
+    // Solo aceptamos citas en el futuro (con 1 min de margen) y en los próximos 6 meses.
+    if (when.getTime() < opts.now.getTime() + 60_000) return null
+    if (when.getTime() > opts.now.getTime() + 1000 * 60 * 60 * 24 * 180) return null
+    if ((parsed.confidence ?? 0) < 0.6) return null
+
+    const dur = parsed.duration_min && parsed.duration_min > 0 && parsed.duration_min <= 240
+      ? Math.round(parsed.duration_min)
+      : 60
+
+    return {
+      scheduled_at: when.toISOString(),
+      duration_min: dur,
+      treatment: parsed.treatment ?? null,
+      reasoning: parsed.reasoning ?? 'sin explicación',
+    }
+  } catch (err) {
+    console.warn('[Brain] extractAppointmentAction falló:', (err as Error).message)
+    return null
+  }
+}
+
 // ── Detecta la intención del mensaje ──
 function detectIntent(text: string): string {
   const lower = text.toLowerCase()
@@ -399,6 +629,35 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
     if (!config) {
       console.error(`[Brain] No hay config para clinic ${clinic_id}`)
       return
+    }
+
+    // 1b. Cargar timezone y citas próximas (próximos 14 días, no canceladas).
+    //     Esto le da al asistente contexto para confirmar EN VIVO y al
+    //     extractor un horario contra el que validar choques.
+    const now = new Date()
+    const upcomingWindowEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+    const [{ data: clinicRow }, { data: upcomingApptsRaw }] = await Promise.all([
+      supabaseAdmin
+        .from('clinics')
+        .select('timezone')
+        .eq('id', clinic_id)
+        .single<{ timezone: string | null }>(),
+      supabaseAdmin
+        .from('appointments')
+        .select('scheduled_at, duration_min, treatment, status')
+        .eq('clinic_id', clinic_id)
+        .gte('scheduled_at', now.toISOString())
+        .lte('scheduled_at', upcomingWindowEnd.toISOString())
+        .in('status', ['scheduled', 'confirmed'])
+        .order('scheduled_at', { ascending: true }),
+    ])
+    const clinicTimezone = clinicRow?.timezone || 'America/Mexico_City'
+    const upcomingAppointments =
+      (upcomingApptsRaw as Array<{ scheduled_at: string; duration_min: number; treatment: string | null }> | null) ?? []
+    const promptExtras: PromptExtras = {
+      now,
+      timezone: clinicTimezone,
+      upcomingAppointments,
     }
 
     // 2. Inicializar el cliente de IA según el proveedor configurado.
@@ -677,7 +936,7 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
 
       try {
         const completion = await ai.chat({
-          system: buildSystemPrompt(config, lead),
+          system: buildSystemPrompt(config, lead, promptExtras),
           messages: chatMessages,
           maxTokens: 400,
         })
@@ -730,6 +989,90 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
       nameUpdate = { name: content.trim() }
     }
 
+    // 11c. ¿En este turno se acaba de cerrar una cita?
+    //      Solo gastamos tokens del extractor si la conversación huele a agenda:
+    //      intent actual = schedule|confirmation, o ya se venía discutiendo
+    //      la cita en turnos anteriores. Así no llamamos al extractor en
+    //      conversaciones que solo son saludos/precios.
+    let appointmentExtracted: ExtractedAppointment | null = null
+    const looksLikeScheduling =
+      intent === 'schedule' ||
+      intent === 'confirmation' ||
+      updatedContext.appointment_discussed === true
+    if (sent && looksLikeScheduling && lead.stage !== 'scheduled') {
+      // Para el extractor pasamos también el mensaje recién enviado por el
+      // asistente — es justo donde está la confirmación tipo "Listo, agendado…".
+      const turnsForExtractor = [...updatedMessages, assistantMessage]
+      appointmentExtracted = await extractAppointmentAction({
+        ai,
+        recentMessages: turnsForExtractor,
+        timezone: clinicTimezone,
+        now: new Date(),
+        schedule: config.schedule,
+        treatments: config.treatments,
+      })
+      if (appointmentExtracted) {
+        console.log(
+          `[Brain] Cita detectada · ${appointmentExtracted.scheduled_at} · ${appointmentExtracted.duration_min}min · ${appointmentExtracted.treatment ?? 'sin tratamiento'} · razón: ${appointmentExtracted.reasoning}`,
+        )
+      }
+    }
+
+    // Si extraímos una cita, la persistimos y subimos el lead a 'scheduled'.
+    // Esto dispara realtime → cronología, dashboard, agenda y leads se mueven.
+    let newAppointmentId: string | null = null
+    if (appointmentExtracted) {
+      // Anti-duplicado: si ya existe una cita futura en exactamente el mismo
+      // instante para este lead, no la volvemos a insertar.
+      const { data: existing } = await supabaseAdmin
+        .from('appointments')
+        .select('id')
+        .eq('clinic_id', clinic_id)
+        .eq('lead_id', lead.id)
+        .eq('scheduled_at', appointmentExtracted.scheduled_at)
+        .maybeSingle<{ id: string }>()
+
+      if (existing?.id) {
+        newAppointmentId = existing.id
+      } else {
+        const { data: inserted, error: apptErr } = await supabaseAdmin
+          .from('appointments')
+          .insert({
+            clinic_id,
+            lead_id: lead.id,
+            scheduled_at: appointmentExtracted.scheduled_at,
+            duration_min: appointmentExtracted.duration_min,
+            treatment: appointmentExtracted.treatment,
+            status: 'scheduled',
+            notes: `Agendada automáticamente por el asistente · ${appointmentExtracted.reasoning}`,
+          })
+          .select('id')
+          .single<{ id: string }>()
+        if (apptErr) {
+          console.error('[Brain] No se pudo insertar la cita:', apptErr)
+          trackErrorSync({
+            source: 'system',
+            code: 'APPOINTMENT_INSERT_FAILED',
+            error: apptErr,
+            severity: 'error',
+            clinicId: clinic_id,
+            context: { lead_id: lead.id, scheduled_at: appointmentExtracted.scheduled_at },
+          })
+        } else if (inserted) {
+          newAppointmentId = inserted.id
+          updatedContext.appointment_discussed = true
+        }
+      }
+    }
+
+    // Stage por defecto si no hubo override de workflow ni cita confirmada:
+    //  - cita confirmada por extractor → 'scheduled'
+    //  - intent = schedule pero sin cierre → 'interested'
+    const stageFromExtraction = newAppointmentId ? 'scheduled' : undefined
+    const stageFromIntent = intent === 'schedule' ? 'interested' : undefined
+    const finalStage =
+      engineResult.lead_updates.stage ?? stageFromExtraction ?? stageFromIntent
+
     // 12. Actualizar todo en DB
     await Promise.all([
       // Actualizar conversación
@@ -747,15 +1090,49 @@ export async function processMessage(waMsg: WAMessage): Promise<void> {
         .from('leads')
         .update({
           last_message_at: new Date().toISOString(),
-          stage: engineResult.lead_updates.stage ?? (intent === 'schedule' ? 'interested' : undefined),
-          treatment_interest: updatedContext.appointment_discussed
-            ? (lead.treatment_interest ?? config.treatments[0])
-            : lead.treatment_interest,
+          stage: finalStage,
+          treatment_interest:
+            appointmentExtracted?.treatment ??
+            (updatedContext.appointment_discussed
+              ? (lead.treatment_interest ?? config.treatments[0])
+              : lead.treatment_interest),
           ...nameUpdate,
           ...engineResult.lead_updates,
         })
         .eq('id', lead.id),
     ])
+
+    // 12a. Notificar al doctor en cuanto se cierre la cita.
+    if (newAppointmentId && appointmentExtracted) {
+      const apptHuman = new Intl.DateTimeFormat('es-CO', {
+        timeZone: clinicTimezone,
+        weekday: 'long',
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(appointmentExtracted.scheduled_at))
+      void notify(clinic_id, {
+        kind: 'appointment_new',
+        severity: 'success',
+        title: 'Nueva cita agendada por el asistente',
+        body: `${lead.name ?? from_phone} agendó para ${apptHuman}${appointmentExtracted.treatment ? ` · ${appointmentExtracted.treatment}` : ''}.`,
+        icon: 'CalendarCheck',
+        action_url: '/dashboard/appointments',
+        action_label: 'Ver agenda',
+        entity_type: 'appointment',
+        entity_id: newAppointmentId,
+        metadata: {
+          lead_id: lead.id,
+          phone: from_phone,
+          scheduled_at: appointmentExtracted.scheduled_at,
+          duration_min: appointmentExtracted.duration_min,
+        },
+      }).catch((err) => {
+        console.error('[Brain] No se pudo notificar la cita:', err)
+      })
+    }
 
     // 12b. Si workflow escaló, marcar contexto de la conversación
     if (engineResult.escalated) {
