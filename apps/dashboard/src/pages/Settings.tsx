@@ -892,7 +892,7 @@ export default function Settings() {
                   <Sparkles className="h-4 w-4 text-lime-400" />
                   <h3 className="text-sm font-semibold text-white">Prompt del asistente</h3>
                 </div>
-                <span className="text-[11px] text-zinc-500">{form.custom_prompt.length.toLocaleString()}/12.000</span>
+                <span className="text-[11px] text-zinc-500">{form.custom_prompt.length.toLocaleString()}/20.000</span>
               </div>
 
               {/* Aviso de obligatoriedad */}
@@ -924,7 +924,7 @@ export default function Settings() {
                     if (form.custom_prompt.trim().length > 0) {
                       if (!window.confirm('Esto reemplazará tu prompt actual con la plantilla base. ¿Continuar?')) return
                     }
-                    setForm({ ...form, custom_prompt: DENTAL_PROMPT_TEMPLATE.slice(0, 12000) })
+                    setForm({ ...form, custom_prompt: DENTAL_PROMPT_TEMPLATE.slice(0, 20000) })
                   }}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-lime-500/40 bg-lime-500/10 px-3 py-1.5 text-[12px] font-medium text-lime-300 transition hover:bg-lime-500/20"
                 >
@@ -961,7 +961,7 @@ export default function Settings() {
 
               <textarea
                 value={form.custom_prompt}
-                onChange={(e) => setForm({ ...form, custom_prompt: e.target.value.slice(0, 12000) })}
+                onChange={(e) => setForm({ ...form, custom_prompt: e.target.value.slice(0, 20000) })}
                 rows={18}
                 spellCheck={false}
                 className="w-full rounded-lg border border-dark-500 bg-dark-700 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white placeholder-zinc-500 outline-none focus:border-lime-500/50"
