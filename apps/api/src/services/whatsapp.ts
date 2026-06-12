@@ -21,6 +21,11 @@ import pino from 'pino'
 import { EventEmitter } from 'events'
 import { createClient } from '@supabase/supabase-js'
 import { trackErrorSync } from './error-tracker.js'
+import {
+  sendWaConnectedEmail,
+  sendWaDisconnectedEmail,
+} from './email/index.js'
+import { notify, getClinicOwnerContact } from './notifications.js'
 
 const supabaseAdmin = createClient(
   process.env['SUPABASE_URL']!,
@@ -199,6 +204,43 @@ export async function startSession(
       sessionStatus.set(clinicId, 'disconnected')
       waEvents.emit(`status:${clinicId}`, 'disconnected')
 
+      // ── Notificación al doctor (email + in-app) ──
+      // Solo cuando es logout real (no si va a reconectar solo).
+      // Evita ruido si la conexión rebota cada minuto.
+      if (!shouldReconnect) {
+        ;(async () => {
+          try {
+            const owner = await getClinicOwnerContact(clinicId)
+            if (owner?.owner_email) {
+              await sendWaDisconnectedEmail(owner.owner_email, {
+                ownerName: owner.owner_name,
+                clinic: {
+                  id: owner.clinic_id,
+                  name: owner.clinic_name,
+                },
+                reason: 'Sesión cerrada desde otro dispositivo o expiró el token',
+              })
+            }
+            await notify(clinicId, {
+              kind: 'wa_disconnected',
+              severity: 'critical',
+              title: 'Tu WhatsApp se desconectó',
+              body: 'Mientras esté así, los pacientes nuevos no reciben respuesta automática. Reconectar toma 1 minuto.',
+              icon: 'WifiOff',
+              action_url: '/dashboard/whatsapp',
+              action_label: 'Reconectar',
+              entity_type: 'clinic',
+              entity_id: clinicId,
+            })
+          } catch (err) {
+            console.warn(
+              `[WA] notify wa_disconnected falló para ${clinicId}:`,
+              (err as Error).message,
+            )
+          }
+        })()
+      }
+
       if (shouldReconnect) {
         // Esperar 3s antes de reconectar para evitar loops rápidos
         setTimeout(() => startSession(clinicId), 3000)
@@ -230,6 +272,43 @@ export async function startSession(
       }
 
       waEvents.emit(`status:${clinicId}`, 'connected', phone)
+
+      // ── Notificación al doctor (email + in-app) ──
+      // Solo en la primera conexión real (no en reconexiones automáticas
+      // rápidas — dedup por entidad lo absorbe).
+      ;(async () => {
+        try {
+          const owner = await getClinicOwnerContact(clinicId)
+          if (owner?.owner_email) {
+            await sendWaConnectedEmail(owner.owner_email, {
+              ownerName: owner.owner_name,
+              clinic: {
+                id: owner.clinic_id,
+                name: owner.clinic_name,
+              },
+              phone,
+            })
+          }
+          await notify(clinicId, {
+            kind: 'wa_connected',
+            severity: 'success',
+            title: 'Tu asistente está en línea',
+            body: phone
+              ? `Conectado al número ${phone}.`
+              : 'Conectada y respondiendo en automático.',
+            icon: 'CheckCircle2',
+            action_url: '/dashboard/conversations',
+            action_label: 'Ver conversaciones',
+            entity_type: 'clinic',
+            entity_id: clinicId,
+          })
+        } catch (err) {
+          console.warn(
+            `[WA] notify wa_connected falló para ${clinicId}:`,
+            (err as Error).message,
+          )
+        }
+      })()
     }
   })
 

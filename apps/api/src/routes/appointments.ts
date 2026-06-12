@@ -14,6 +14,12 @@ import {
   cancelAppointmentFollowUps,
 } from '../services/scheduler.js'
 import { sendAppointmentConfirmationEmail } from '../services/email/index.js'
+import {
+  scheduleAppointmentReminder24h,
+  cancelAppointmentReminder24h,
+} from '../services/email-scheduler.js'
+import { notify } from '../services/notifications.js'
+import { formatDateTime } from '../services/email/templates/format.js'
 
 const STATUSES = [
   'scheduled',
@@ -175,6 +181,26 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
       req.log.error({ err }, 'Error programando reminders (cita creada igual)')
     }
 
+    // 4.b Email recordatorio 24h al paciente (cola paralela `celura-emails`)
+    void scheduleAppointmentReminder24h(
+      clinic_id,
+      appt.id,
+      scheduledDate,
+    ).catch((err) => req.log.warn({ err }, 'reminder email schedule falló'))
+
+    // 4.c Notificación in-app al doctor: "Cita nueva con María García"
+    void notify(clinic_id, {
+      kind: 'appointment_new',
+      severity: 'success',
+      title: `Cita nueva: ${(lead as { name?: string }).name ?? 'paciente'}`,
+      body: `${formatDateTime(parsed.data.scheduled_at)}${parsed.data.treatment ? ' · ' + parsed.data.treatment : ''}`,
+      icon: 'CalendarPlus',
+      action_url: `/dashboard/appointments/${appt.id}`,
+      action_label: 'Ver cita',
+      entity_type: 'appointment',
+      entity_id: appt.id,
+    }).catch(() => {})
+
     // 5. Confirmación por email al paciente (si tiene email registrado)
     const leadWithContact = lead as { id: string; stage: string; email: string | null; name: string | null }
     if (leadWithContact.email) {
@@ -275,6 +301,31 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
       } catch (err) {
         req.log.error({ err }, 'Error reprogramando reminders')
       }
+
+      // Email reminder 24h: cancelar el viejo + reset flag + agendar nuevo
+      void cancelAppointmentReminder24h(p.data.id)
+      await req.supabase
+        .from('appointments')
+        .update({ email_reminder_24h_sent: false })
+        .eq('id', p.data.id)
+      void scheduleAppointmentReminder24h(
+        clinic_id,
+        p.data.id,
+        new Date(parsed.data.scheduled_at!),
+      )
+
+      // Notif al doctor
+      void notify(clinic_id, {
+        kind: 'appointment_rescheduled',
+        severity: 'info',
+        title: 'Cita reprogramada',
+        body: `Nueva fecha: ${formatDateTime(parsed.data.scheduled_at!)}`,
+        icon: 'CalendarSync',
+        action_url: `/dashboard/appointments/${p.data.id}`,
+        action_label: 'Ver cita',
+        entity_type: 'appointment',
+        entity_id: p.data.id,
+      }).catch(() => {})
     }
 
     // b) Status pasó a cancelled / no_show / rescheduled → cancelar reminders
@@ -289,6 +340,36 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
       } catch (err) {
         req.log.error({ err }, 'Error cancelando reminders')
       }
+      void cancelAppointmentReminder24h(p.data.id)
+
+      // Notif al doctor según el motivo
+      const statusKey = parsed.data.status as 'cancelled' | 'no_show' | 'rescheduled'
+      const severityByStatus = {
+        cancelled: 'warning' as const,
+        no_show: 'warning' as const,
+        rescheduled: 'info' as const,
+      }
+      const titleByStatus = {
+        cancelled: 'Cita cancelada',
+        no_show: 'Paciente no se presentó',
+        rescheduled: 'Cita reprogramada',
+      }
+      void notify(clinic_id, {
+        kind:
+          statusKey === 'cancelled'
+            ? 'appointment_cancelled'
+            : statusKey === 'rescheduled'
+              ? 'appointment_rescheduled'
+              : 'appointment_cancelled',
+        severity: severityByStatus[statusKey],
+        title: titleByStatus[statusKey],
+        body: `Cita del ${formatDateTime(current.scheduled_at)}.`,
+        icon: parsed.data.status === 'no_show' ? 'UserX' : 'CalendarX',
+        action_url: `/dashboard/appointments/${p.data.id}`,
+        action_label: 'Ver detalle',
+        entity_type: 'appointment',
+        entity_id: p.data.id,
+      }).catch(() => {})
 
       // Si el paciente no vino → marcar el lead como 'lost'
       if (parsed.data.status === 'no_show') {
@@ -331,6 +412,19 @@ export default async function appointmentsRoutes(fastify: FastifyInstance) {
     } catch (err) {
       req.log.error({ err }, 'Error cancelando reminders')
     }
+    void cancelAppointmentReminder24h(p.data.id)
+
+    void notify(req.tenant.clinic_id, {
+      kind: 'appointment_cancelled',
+      severity: 'warning',
+      title: 'Cita cancelada',
+      body: `Cita del ${formatDateTime(data.scheduled_at)}.`,
+      icon: 'CalendarX',
+      action_url: `/dashboard/appointments/${p.data.id}`,
+      action_label: 'Ver detalle',
+      entity_type: 'appointment',
+      entity_id: p.data.id,
+    }).catch(() => {})
 
     return reply.send({ success: true, appointment: data })
   })

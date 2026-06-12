@@ -25,11 +25,17 @@ import appointmentsRoutes from './routes/appointments.js'
 import conversationsRoutes from './routes/conversations.js'
 import workflowsRoutes from './routes/workflows.js'
 import adminRoutes from './routes/admin.js'
+import notificationsRoutes from './routes/notifications.js'
 import { waEvents, restoreAllSessions } from './services/whatsapp.js'
 import { persistRawMessage } from './services/brain.js'
 import { enqueueIncoming } from './services/humanizer.js'
 import { trackErrorSync } from './services/error-tracker.js'
 import { startFollowUpWorker, shutdownScheduler } from './services/scheduler.js'
+import {
+  startEmailWorker,
+  registerRepeatableEmailJobs,
+  shutdownEmailScheduler,
+} from './services/email-scheduler.js'
 import type { WAMessage } from './services/whatsapp.js'
 
 async function buildServer() {
@@ -114,6 +120,7 @@ async function buildServer() {
   await fastify.register(appointmentsRoutes, { prefix: '/api' })    // /api/appointments/*
   await fastify.register(whatsappRoutes, { prefix: '/api' })        // /api/whatsapp/*
   await fastify.register(workflowsRoutes, { prefix: '/api' })       // /api/workflows/*
+  await fastify.register(notificationsRoutes, { prefix: '/api' })   // /api/notifications/*
   await fastify.register(adminRoutes)                               // /admin/* (con preHandler de rol)
 
   // ── Sentry: instrumentación de Fastify (después de rutas) ──
@@ -192,6 +199,15 @@ async function main() {
     server.log.error({ err }, 'No se pudo iniciar el worker de seguimientos')
   }
 
+  // Worker de emails proactivos (recordatorios 24h, trial, resumen diario)
+  try {
+    startEmailWorker()
+    await registerRepeatableEmailJobs()
+    server.log.info('Email worker + repeatable jobs registrados')
+  } catch (err) {
+    server.log.error({ err }, 'No se pudo iniciar el worker de emails')
+  }
+
   try {
     await restoreAllSessions()
   } catch (err) {
@@ -216,6 +232,7 @@ async function main() {
     try {
       await server.close()
       await shutdownScheduler()
+      await shutdownEmailScheduler()
     } catch (err) {
       server.log.error({ err }, 'Error durante el shutdown')
     } finally {

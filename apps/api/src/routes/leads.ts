@@ -12,6 +12,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
+import { notify } from '../services/notifications.js'
 
 const STAGES = ['new', 'contacted', 'warm', 'interested', 'scheduled', 'attended', 'recurring', 'lost'] as const
 const URGENCIES = ['low', 'medium', 'high', 'emergency'] as const
@@ -165,6 +166,23 @@ export default async function leadsRoutes(fastify: FastifyInstance) {
       req.log.error({ err: error }, 'Error creando lead')
       return reply.status(500).send({ error: 'Error creando lead' })
     }
+
+    // Notif: lead nuevo creado manualmente
+    const isHighValue =
+      data.urgency === 'high' || data.urgency === 'emergency'
+    void notify(req.tenant.clinic_id, {
+      kind: isHighValue ? 'lead_high_value' : 'lead_new',
+      severity: isHighValue ? 'warning' : 'info',
+      title: isHighValue
+        ? `Lead urgente: ${data.name ?? 'Sin nombre'}`
+        : `Nuevo paciente: ${data.name ?? 'Sin nombre'}`,
+      body: data.notes ?? data.phone ?? undefined,
+      icon: isHighValue ? 'AlertTriangle' : 'UserPlus',
+      action_url: `/dashboard/leads/${data.id}`,
+      action_label: 'Ver paciente',
+      entity_type: 'lead',
+      entity_id: data.id,
+    }).catch(() => {})
 
     return reply.status(201).send({ success: true, lead: data })
   })
